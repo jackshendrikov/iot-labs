@@ -1,0 +1,43 @@
+[project]
+name = "road-vision-lab1"
+version = "0.1.0"
+description = "Emulated agent for road surface monitoring"
+requires-python = ">=3.11"
+
+dependencies = [
+  "paho-mqtt>=2.1.0",
+  "pydantic>=2.12.5",
+  "pydantic-settings>=2.13.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.2",
+  "pytest-cov>=7.0.0",
+  "ruff>=0.15.6",
+  "isort>=8.0.1",
+  "pyupgrade>=3.21.2",
+  "mypy>=1.19.1",
+  "pre-commit>=4.5.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.pytest.ini_options]
+addopts = ["-ra"]
+testpaths = ["tests"]
+pythonpath = ["."]
