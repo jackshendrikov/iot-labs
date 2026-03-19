@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from src.domain import Gps
+from src.models.gps import Gps
 
 
 class TemperatureSensor(BaseModel):

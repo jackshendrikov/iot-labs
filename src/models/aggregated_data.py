@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-from src.domain import Accelerometer, Gps
-from src.domain.temperature_sensor import TemperatureSensor
+from src.models.accelerometer import Accelerometer
+from src.models.gps import Gps
+from src.models.temperature_sensor import TemperatureSensor
 
 
 class AggregatedData(BaseModel):

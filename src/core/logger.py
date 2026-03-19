@@ -2,7 +2,7 @@ import logging
 import sys
 from typing import ClassVar
 
-from src.config import settings
+from core.config import settings
 
 
 class _ColorFormatter(logging.Formatter):

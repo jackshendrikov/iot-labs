@@ -1,7 +1,7 @@
-version: "3.9"
 name: "road_vision"
 
 services:
+  # MQTT broker
   mqtt:
     image: eclipse-mosquitto
     container_name: mqtt
@@ -11,13 +11,17 @@ services:
       - ./mosquitto/log:/mosquitto/log
     ports:
       - "1883:1883"
-      - "8080:9001"
+      - "8085:9001"
+    networks:
+      - mqtt_network
 
+  # Agent
   fake_agent:
     container_name: agent
     build:
       context: ../
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.agent
+    restart: unless-stopped
     depends_on:
       - mqtt
     environment:
@@ -26,10 +30,69 @@ services:
       MQTT_TOPIC: "agent_data_topic"
       DELAY: 0.1
       BATCH_SIZE: 5
-      ACCELEROMETER_FILE: "data/accelerometer.csv"
-      GPS_FILE: "data/gps.csv"
+      LOG_LEVEL: "INFO"
+    networks:
+      - mqtt_network
+
+ # PostgreSQL
+  postgres_db:
+    image: postgres:18-alpine
+    container_name: postgres_db
     restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: road_vision
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/structure.sql:/docker-entrypoint-initdb.d/structure.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - db_network
+
+  # pgAdmin
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin4
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - db_network
+
+  # Store API
+  store:
+    container_name: store
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.store
+    restart: unless-stopped
+    depends_on:
+      - postgres_db
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: road_vision
+      STORE_HOST: "0.0.0.0"
+      STORE_PORT: 8000
+      LOG_LEVEL: "INFO"
+    ports:
+      - "8000:8000"
+    networks:
+      - db_network
 
 networks:
-  default:
-    name: mqtt_network
+  mqtt_network:
+  db_network:
+
+volumes:
+  postgres_data:
+  pgadmin_data:

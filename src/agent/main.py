@@ -3,10 +3,10 @@ import time
 
 from paho.mqtt import client as mqtt_client
 
-from src.config import settings
-from src.domain import AggregatedData
-from src.file_datasource import FileDatasource
-from src.logger import logger
+from src.agent.file_datasource import FileDatasource
+from src.core.config import settings
+from src.core.logger import logger
+from src.models import AggregatedData
 
 
 def connect_mqtt() -> mqtt_client.Client:

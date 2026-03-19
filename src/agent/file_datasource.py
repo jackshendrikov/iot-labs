@@ -2,9 +2,8 @@ import csv
 from collections.abc import Iterator
 from typing import TextIO
 
-from src.domain import Accelerometer, AggregatedData, Gps
-from src.domain.temperature_sensor import TemperatureSensor
-from src.logger import logger
+from src.core.logger import logger
+from src.models import Accelerometer, AggregatedData, Gps, TemperatureSensor
 
 _CsvRow = dict[str, str]
 _CsvReader = Iterator[_CsvRow]

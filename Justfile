@@ -3,8 +3,11 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 install:
     uv sync --extra dev
 
-run:
-    uv run python -m src.main
+run-agent:
+    uv run python -m src.agent.main
+
+run-store:
+    uv run python -m src.store.main
 
 test:
     uv run pytest -q
@@ -23,6 +26,9 @@ precommit:
 
 docker-up:
     Set-Location docker; docker compose up --build
+
+docker-down:
+    Set-Location docker; docker compose down -v
 
 clean:
     Get-ChildItem -Recurse -Directory __pycache__ | Remove-Item -Recurse -Force

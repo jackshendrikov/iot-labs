@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
-# Копіюємо файли конфігурації та вихідний код агента
+# Копіюємо файли конфігурації та вихідний код store
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
@@ -34,9 +34,8 @@ WORKDIR /app
 # Копіюємо віртуальне середовище зі стадії збірки
 COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 
-# Копіюємо код агента та вхідні дані
+# Копіюємо код store
 COPY --chown=appuser:appgroup src/ ./src/
-COPY --chown=appuser:appgroup data/ ./data/
 
 # Додаємо віртуальне середовище до шляху виконання
 ENV PATH="/app/.venv/bin:$PATH"
@@ -44,5 +43,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Перемикаємось на непривілейованого користувача
 USER appuser
 
-# Запускаємо модуль агента
-CMD ["python", "-m", "src.main"]
+# Запускаємо модуль store
+CMD ["python", "-m", "src.store.main"]

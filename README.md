@@ -1,25 +1,55 @@
-# Лабораторна робота №1 - Агент моніторингу стану дорожнього покриття
+# Агент моніторингу стану дорожнього покриття
 
-Цей репозиторій містить реалізацію **Agent** частини системи моніторингу стану дорожнього покриття.  
-Агент емулює роботу датчиків (акселерометра, GPS та температурного датчика) шляхом читання даних з CSV‑файлів, агрегації записів та відправлення їх у брокер MQTT.  
-Проєкт побудований з використанням `pydantic` для опису моделей, `pydantic-settings` для конфігурації, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
+Цей репозиторій містить реалізацію двох модулів системи моніторингу стану дорожнього покриття:
+
+- **Lab 1 — Agent**: емулює роботу датчиків (акселерометра, GPS та температурного датчика) шляхом читання даних з CSV‑файлів, агрегації записів та відправлення їх у брокер MQTT.
+- **Lab 2 — Store API**: FastAPI‑сервіс для зберігання оброблених даних у PostgreSQL із WebSocket‑підпискою для UI‑клієнтів.
+
+Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
 
 ## 📁 Структура проєкту
 
 ```
-lab1/
+iot-labs/
 ├── data/                        # Тестові CSV‑файли з даними
-├── src/                         # Вихідний код агента
-│   ├── config.py                # Налаштування, що зчитуються з .env та змін оточення
-│   ├── domain/                  # Pydantic‑моделі прикладної області
-│   ├── file_datasource.py       # Логіка читання даних з файлів (з циклічним та пакетним читанням)
-│   └── main.py                  # Точка входу: підключення до MQTT та публікація даних
+├── src/                         # Вихідний код системи
+│   ├── core/                    # Спільне ядро: конфіг та логер
+│   │   ├── config.py            # Налаштування (MQTT, PostgreSQL, Store) з .env та змінних оточення
+│   │   └── logger.py            # Кольоровий логер із відкладеною ініціалізацією
+│   ├── models/                  # Pydantic‑моделі предметної області
+│   │   ├── accelerometer.py
+│   │   ├── gps.py
+│   │   ├── temperature_sensor.py
+│   │   ├── aggregated_data.py
+│   │   └── processed_agent_data.py
+│   ├── db/                      # Шар бази даних
+│   │   ├── base.py              # SQLAlchemy async engine, session factory, Base, get_db_session
+│   │   └── orm_models.py        # ORM‑модель ProcessedAgentDataORM
+│   ├── repository/              # Шар доступу до даних (Repository pattern)
+│   │   └── processed_agent_data.py
+│   ├── api/                     # FastAPI застосунок
+│   │   ├── app.py               # Фабрика застосунку та lifespan
+│   │   ├── router.py            # Агрегатор роутерів
+│   │   ├── dependencies.py      # FastAPI Depends: сесія БД
+│   │   ├── ws_manager.py        # ConnectionManager для WebSocket
+│   │   └── routes/              # Маршрути, розбиті за відповідальністю
+│   │       ├── processed_agent_data.py  # CRUDL ендпоінти
+│   │       ├── health.py        # /health із перевіркою БД (SELECT 1)
+│   │       └── websocket.py     # /ws/ WebSocket ендпоінт
+│   ├── agent/                   # Lab 1 — логіка агента
+│   │   ├── file_datasource.py   # Читання CSV з циклічним та пакетним режимами
+│   │   └── main.py              # Точка входу агента: підключення до MQTT та публікація даних
+│   └── store/                   # Lab 2 — точка входу Store API
+│       └── main.py              # Запуск uvicorn
 ├── docker/
-│   ├── Dockerfile               # Опис образу агента
-│   ├── docker-compose.yaml      # Оркестрація агента та MQTT‑брокера
-│   └── mosquitto/               # Конфігурація для брокера Mosquitto
-├── tests/                       # Модульні тести для FileDatasource
-├── .pre-commit-config.yaml      # Налаштування pre‑commit з ruff, mypy, isort, black та pyupgrade
+│   ├── Dockerfile.agent         # Образ агента
+│   ├── Dockerfile.store         # Образ Store API
+│   ├── docker-compose.yaml      # Unified: agent + mqtt + postgres + pgadmin + store
+│   ├── mosquitto/               # Конфігурація брокера Mosquitto
+│   └── db/
+│       └── structure.sql        # Ініціалізація таблиці processed_agent_data
+├── tests/                       # Модульні тести
+├── .pre-commit-config.yaml      # Налаштування pre‑commit: ruff, mypy, isort, pyupgrade
 ├── Justfile                     # Набір команд для спрощення встановлення, запуску і тестування
 ├── pyproject.toml               # Конфігурація проєкту та інструментів
 └── README.md                    # Цей файл
@@ -44,36 +74,38 @@ lab1/
    choco install just
    ```
 
-3. **Створити локальне середовище та встановити залежності** за допомогою `uv` (або використати команду `just install`):
-
-   ```bash
-   # створюємо віртуальне середовище у директорії .venv
-   uv venv .venv
-   # встановлюємо залежності з pyproject.toml (включно з dev‑залежностями)
-   uv pip install -r pyproject.toml
-   uv pip install -e .[dev]
-   ```
-
-   Або простіше:
+3. **Встановити залежності**:
 
    ```bash
    just install
    ```
 
-4. **(Опційно) налаштувати змінні оточення**. Значення за замовчуванням визначені у `src/config.py`.  
+4. **(Опційно) налаштувати змінні оточення**. Значення за замовчуванням визначені у `src/core/config.py`.
    Можна створити файл `.env` у корені та перевизначити потрібні параметри, наприклад:
 
    ```env
+   # Agent / MQTT
    MQTT_BROKER_HOST=localhost
    MQTT_BROKER_PORT=1883
    MQTT_TOPIC=agent_data_topic
    DELAY=0.1
-   BATCH_SIZE=7
+   BATCH_SIZE=5
    ACCELEROMETER_FILE=data/accelerometer.csv
    GPS_FILE=data/gps.csv
    TEMPERATURE_FILE=data/temperature.csv
+
+   # Store / PostgreSQL
+   POSTGRES_HOST=localhost
+   POSTGRES_PORT=5432
+   POSTGRES_USER=user
+   POSTGRES_PASSWORD=pass
+   POSTGRES_DB=road_vision
+   STORE_PORT=8000
+
    LOG_LEVEL=INFO
    ```
+
+### Lab 1 — Запуск агента
 
 5. **Запустити брокер MQTT**, наприклад за допомогою `mosquitto`:
 
@@ -90,39 +122,57 @@ lab1/
 6. **Запустити агента**:
 
    ```bash
-   # Використати just для запуску
-   just run
-   
-   # або вручну через uv/віртуальне середовище
-   python -m src.main
+   just run-agent
    ```
 
    Агент почне циклічно читати дані з CSV‑файлів пакетами (`batch_size` записів), серіалізувати кожен запис у JSON та відправляти у зазначений MQTT‑топік.
 
-7. **Виконати тести**:
+7. **Перевірити результати** можна у [MQTT Explorer](https://mqtt-explorer.com/), підписавшись на ваш топік.
+
+### Lab 2 — Запуск Store API
+
+8. **Запустити PostgreSQL**:
 
    ```bash
-   just test
-   # або без just
-   pytest -q
+   docker run --rm -e POSTGRES_USER=user -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=road_vision -p 5432:5432 postgres:18-alpine
    ```
 
-8. **Перевірити результати** можна у [MQTT Explorer](https://mqtt-explorer.com/) або будь‑якому іншому клієнті MQTT, підписавшись на ваш топік.
+9. **Запустити Store API**:
+
+   ```bash
+   just run-store
+   ```
+
+10. **Перевірити Swagger**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+11. **Виконати тести**:
+
+    ```bash
+    just test
+    ```
 
 ## 🐳 Запуск у Docker
 
-Цей проєкт включає `docker-compose.yaml`, що дозволяє легко підняти одночасно брокер MQTT та агента.
+Проєкт включає єдиний `docker-compose.yaml`, що запускає всі сервіси одночасно:
 
-1. Перейдіть до директорії `/docker`.
-2. Виконайте:
+```bash
+just docker-up
+```
 
-   ```bash
-   docker compose up --build
-   ```
+Після запуску доступні:
 
-   `docker-compose` створить мережу, запустить контейнер з Mosquitto та побудує контейнер агента. В образ агента інтегровано `uv`, тому залежності встановлюються з `pyproject.toml`, а код запускається в системному Python. Змінні оточення передаються у контейнер через `environment` у `docker-compose.yaml`.
+| Сервіс | URL |
+|---|---|
+| Store API / Swagger | [http://localhost:8000/docs](http://localhost:8000/docs) |
+| Health check | [http://localhost:8000/health](http://localhost:8000/health) |
+| pgAdmin | [http://localhost:5050](http://localhost:5050) |
+| MQTT broker | localhost:1883 |
 
-3. Після запуску можна підключитись до брокера (порт 1883) за допомогою MQTT Explorer та побачити повідомлення у топіку `agent_data_topic`.
+Для зупинки та видалення volumes:
+
+```bash
+just docker-down
+```
 
 ## 🧹 Налаштування pre‑commit
 
@@ -140,7 +190,7 @@ pip install pre-commit
 pre-commit install
 ```
 
-Після цього при кожному коміті будуть автоматично виконуватись лінтери.  
+Після цього при кожному коміті будуть автоматично виконуватись лінтери.
 Для ручного запуску можна використати:
 
 ```bash
@@ -149,13 +199,15 @@ pre-commit run --all-files
 
 ## 🛠️ Justfile
 
-У корені проєкту розташований `Justfile` — це набір корисних команд, які спрощують деякі задачі. Під цей проєкт додано такі команди:
+У корені проєкту розташований `Justfile` — набір корисних команд:
 
-- `just install` — створює віртуальне середовище `.venv` та встановлює усі залежності (включно з dev‑залежностями) через `uv`.
-- `just run` — запускає агент локально (`python -m src.main`).
+- `just install` — встановлює усі залежності (включно з dev‑залежностями) через `uv`.
+- `just run-agent` — запускає агент локально (`python -m src.agent.main`).
+- `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`).
 - `just test` — запускає модульні тести за допомогою `pytest`.
 - `just lint` — перевіряє код за допомогою `ruff`.
 - `just format` — форматування коду (`ruff format`).
 - `just typecheck` — статична перевірка типів (`mypy`).
-- `just docker-up` — збирає та запускає проєкт разом з брокером MQTT через `docker compose`.
+- `just docker-up` — збирає та запускає всі сервіси в Docker.
+- `just docker-down` — зупиняє контейнери та видаляє volumes.
 - `just precommit` — запускає всі pre‑commit hooks.
