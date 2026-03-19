@@ -9,6 +9,9 @@ run-agent:
 run-store:
     uv run python -m src.store.main
 
+run-hub:
+    uv run python -m src.hub.main
+
 test:
     uv run pytest -q
 

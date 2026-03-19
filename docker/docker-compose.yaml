@@ -83,15 +83,54 @@ services:
       POSTGRES_DB: road_vision
       STORE_HOST: "0.0.0.0"
       STORE_PORT: 8000
-      LOG_LEVEL: "INFO"
+      LOG_LEVEL: "DEBUG"
     ports:
       - "8000:8000"
     networks:
       - db_network
+      - hub_store_network
+
+  # Redis
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - hub_redis_network
+
+  # Hub
+  hub:
+    container_name: hub
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.hub
+    restart: unless-stopped
+    depends_on:
+      - mqtt
+      - redis
+      - store
+    environment:
+      MQTT_BROKER_HOST: "mqtt"
+      MQTT_BROKER_PORT: 1883
+      HUB_MQTT_TOPIC: "processed_agent_data_topic"
+      REDIS_HOST: "redis"
+      REDIS_PORT: 6379
+      STORE_API_HOST: "store"
+      STORE_API_PORT: 8000
+      HUB_BATCH_SIZE: 10
+      LOG_LEVEL: "DEBUG"
+    networks:
+      - mqtt_network
+      - hub_store_network
+      - hub_redis_network
 
 networks:
   mqtt_network:
   db_network:
+  hub_store_network:
+  hub_redis_network:
 
 volumes:
   postgres_data:

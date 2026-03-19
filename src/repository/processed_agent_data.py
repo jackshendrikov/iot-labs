@@ -57,8 +57,7 @@ class ProcessedAgentDataRepository:
         await self._session.flush()
         return item
 
-    @staticmethod
-    def _to_orm(data: ProcessedAgentData) -> ProcessedAgentDataORM:
+    def _to_orm(self, data: ProcessedAgentData) -> ProcessedAgentDataORM:
         """Перетворює Pydantic-модель у ORM-об'єкт."""
         return ProcessedAgentDataORM(
             road_state=data.road_state,
@@ -67,7 +66,7 @@ class ProcessedAgentDataRepository:
             z=data.agent_data.accelerometer.z,
             latitude=data.agent_data.gps.latitude,
             longitude=data.agent_data.gps.longitude,
-            timestamp=ProcessedAgentDataRepository._normalize_timestamp(data.agent_data.time),
+            timestamp=self._normalize_timestamp(data.agent_data.time),
         )
 
     @staticmethod

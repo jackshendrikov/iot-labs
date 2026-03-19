@@ -1,11 +1,12 @@
 # Агент моніторингу стану дорожнього покриття
 
-Цей репозиторій містить реалізацію двох модулів системи моніторингу стану дорожнього покриття:
+Цей репозиторій містить реалізацію трьох модулів системи моніторингу стану дорожнього покриття:
 
 - **Lab 1 — Agent**: емулює роботу датчиків (акселерометра, GPS та температурного датчика) шляхом читання даних з CSV‑файлів, агрегації записів та відправлення їх у брокер MQTT.
 - **Lab 2 — Store API**: FastAPI‑сервіс для зберігання оброблених даних у PostgreSQL із WebSocket‑підпискою для UI‑клієнтів.
+- **Lab 3 — Hub**: сервіс накопичення та пакетної обробки оброблених даних перед збереженням у БД через Store API. Отримує дані через MQTT, накопичує в Redis-буфері, відправляє пакетами на Store API.
 
-Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
+Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
 
 ## 📁 Структура проєкту
 
@@ -14,7 +15,7 @@ iot-labs/
 ├── data/                        # Тестові CSV‑файли з даними
 ├── src/                         # Вихідний код системи
 │   ├── core/                    # Спільне ядро: конфіг та логер
-│   │   ├── config.py            # Налаштування (MQTT, PostgreSQL, Store) з .env та змінних оточення
+│   │   ├── config.py            # Налаштування (MQTT, PostgreSQL, Redis, Store, Hub) з .env та змінних оточення
 │   │   └── logger.py            # Кольоровий логер із відкладеною ініціалізацією
 │   ├── models/                  # Pydantic‑моделі предметної області
 │   │   ├── accelerometer.py
@@ -39,16 +40,23 @@ iot-labs/
 │   ├── agent/                   # Lab 1 — логіка агента
 │   │   ├── file_datasource.py   # Читання CSV з циклічним та пакетним режимами
 │   │   └── main.py              # Точка входу агента: підключення до MQTT та публікація даних
-│   └── store/                   # Lab 2 — точка входу Store API
-│       └── main.py              # Запуск uvicorn
+│   ├── store/                   # Lab 2 — точка входу Store API
+│   │   └── main.py              # Запуск uvicorn
+│   └── hub/                     # Lab 3 — Hub сервіс
+│       ├── main.py              # Точка входу Hub: запуск HubService
+│       ├── service.py           # HubService: MQTT → asyncio.Queue → Redis backlog → Store API
+│       └── gateway.py           # StoreApiGateway: async HTTP-адаптер до Store API (httpx)
 ├── docker/
 │   ├── Dockerfile.agent         # Образ агента
 │   ├── Dockerfile.store         # Образ Store API
-│   ├── docker-compose.yaml      # Unified: agent + mqtt + postgres + pgadmin + store
+│   ├── Dockerfile.hub           # Образ Hub
+│   ├── docker-compose.yaml      # Unified: agent + mqtt + postgres + pgadmin + store + redis + hub
 │   ├── mosquitto/               # Конфігурація брокера Mosquitto
 │   └── db/
 │       └── structure.sql        # Ініціалізація таблиці processed_agent_data
-├── tests/                       # Модульні тести
+├── tests/                       # Тести
+│   ├── unit/
+│   └── integration/
 ├── .pre-commit-config.yaml      # Налаштування pre‑commit: ruff, mypy, isort, pyupgrade
 ├── Justfile                     # Набір команд для спрощення встановлення, запуску і тестування
 ├── pyproject.toml               # Конфігурація проєкту та інструментів
@@ -102,6 +110,14 @@ iot-labs/
    POSTGRES_DB=road_vision
    STORE_PORT=8000
 
+   # Hub / Redis (Lab 3)
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   REDIS_DB=0
+   HUB_BATCH_SIZE=10
+   HUB_FLUSH_INTERVAL_SECONDS=30
+   HUB_MQTT_TOPIC=processed_agent_data_topic
+
    LOG_LEVEL=INFO
    ```
 
@@ -151,6 +167,41 @@ iot-labs/
     just test
     ```
 
+### Lab 3 — Запуск Hub
+
+Hub накопичує дані від агента через MQTT-топік `processed_agent_data_topic`, зберігає їх у Redis-буфері та відправляє пакетами (`hub_batch_size` записів) на Store API. Додатково реалізовано **periodичний flush** — якщо батч не набирається за `hub_flush_interval_seconds` секунд, Hub відправляє неповний буфер. При недоступності Store API записи зберігаються у Redis-backlog і повторно відправляються при наступному flush.
+
+12. **Запустити Redis**:
+
+    ```bash
+    docker run --rm -p 6379:6379 redis:7-alpine
+    ```
+
+13. **Переконатися, що Store API запущено** (кроки 8–9 вище), оскільки Hub відправляє дані саме туди.
+
+14. **Запустити Hub**:
+
+    ```bash
+    just run-hub
+    ```
+
+    Hub підключиться до MQTT-брокера, підпишеться на топік `HUB_MQTT_TOPIC` та почне накопичувати повідомлення.
+
+15. **Перевірити** роботу в MQTT Explorer — надіслати тестове повідомлення у топік `processed_agent_data_topic`:
+
+    ```json
+    {
+      "road_state": "good",
+      "agent_data": {
+        "accelerometer": {"x": 0.1, "y": 0.2, "z": 9.8},
+        "gps": {"latitude": 50.45, "longitude": 30.52},
+        "timestamp": "2026-03-19T17:00:00Z"
+      }
+    }
+    ```
+
+    Після накопичення `HUB_BATCH_SIZE` повідомлень (або через `HUB_FLUSH_INTERVAL_SECONDS` секунд) дані з'являться у PostgreSQL (перевірити у pgAdmin або через `GET /processed_agent_data/`).
+
 ## 🐳 Запуск у Docker
 
 Проєкт включає єдиний `docker-compose.yaml`, що запускає всі сервіси одночасно:
@@ -167,6 +218,7 @@ just docker-up
 | Health check | [http://localhost:8000/health](http://localhost:8000/health) |
 | pgAdmin | [http://localhost:5050](http://localhost:5050) |
 | MQTT broker | localhost:1883 |
+| Redis | localhost:6379 |
 
 Для зупинки та видалення volumes:
 
@@ -204,6 +256,7 @@ pre-commit run --all-files
 - `just install` — встановлює усі залежності (включно з dev‑залежностями) через `uv`.
 - `just run-agent` — запускає агент локально (`python -m src.agent.main`).
 - `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`).
+- `just run-hub` — запускає Hub локально (`python -m src.hub.main`).
 - `just test` — запускає модульні тести за допомогою `pytest`.
 - `just lint` — перевіряє код за допомогою `ruff`.
 - `just format` — форматування коду (`ruff format`).
