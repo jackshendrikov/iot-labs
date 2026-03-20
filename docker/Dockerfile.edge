@@ -1,0 +1,47 @@
+FROM python:3.13-slim AS builder
+
+# Копіюємо менеджер пакетів uv з офіційного образу
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Вмикаємо компіляцію байткоду, режим копіювання та забороняємо завантаження Python
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+
+# Встановлюємо робочу директорію всередині контейнера
+WORKDIR /app
+
+# Встановлюємо лише залежності (без коду проєкту)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
+
+# Копіюємо файли конфігурації та вихідний код edge
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+
+# Встановлюємо сам проєкт у віртуальне середовище
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
+
+FROM python:3.13-slim
+
+# Створюємо системного користувача без привілеїв для безпечного запуску
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --no-log-init --gid appgroup appuser
+
+# Встановлюємо робочу директорію всередині контейнера
+WORKDIR /app
+
+# Копіюємо віртуальне середовище зі стадії збірки
+COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
+
+# Копіюємо код edge
+COPY --chown=appuser:appgroup src/ ./src/
+
+# Додаємо віртуальне середовище до шляху виконання
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Перемикаємось на непривілейованого користувача
+USER appuser
+
+# Запускаємо модуль edge
+CMD ["python", "-m", "src.edge.main"]

@@ -5,8 +5,9 @@
 - **Lab 1 — Agent**: емулює роботу датчиків (акселерометра, GPS та температурного датчика) шляхом читання даних з CSV‑файлів, агрегації записів та відправлення їх у брокер MQTT.
 - **Lab 2 — Store API**: FastAPI‑сервіс для зберігання оброблених даних у PostgreSQL із WebSocket‑підпискою для UI‑клієнтів.
 - **Lab 3 — Hub**: сервіс накопичення та пакетної обробки оброблених даних перед збереженням у БД через Store API. Отримує дані через MQTT, накопичує в Redis-буфері, відправляє пакетами на Store API.
+- **Lab 4 — Edge Data Logic**: сервіс первинної обробки даних агента — підписується на `agent_data_topic`, класифікує стан дорожнього покриття за даними акселерометра та публікує `ProcessedAgentData` у `processed_agent_data_topic`.
 
-Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
+Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `paho-mqtt` для Edge, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
 
 ## 📁 Структура проєкту
 
@@ -15,7 +16,7 @@ iot-labs/
 ├── data/                        # Тестові CSV‑файли з даними
 ├── src/                         # Вихідний код системи
 │   ├── core/                    # Спільне ядро: конфіг та логер
-│   │   ├── config.py            # Налаштування (MQTT, PostgreSQL, Redis, Store, Hub) з .env та змінних оточення
+│   │   ├── config.py            # Налаштування (MQTT, PostgreSQL, Redis, Store, Hub, Edge) з .env та змінних оточення
 │   │   └── logger.py            # Кольоровий логер із відкладеною ініціалізацією
 │   ├── models/                  # Pydantic‑моделі предметної області
 │   │   ├── accelerometer.py
@@ -42,15 +43,20 @@ iot-labs/
 │   │   └── main.py              # Точка входу агента: підключення до MQTT та публікація даних
 │   ├── store/                   # Lab 2 — точка входу Store API
 │   │   └── main.py              # Запуск uvicorn
-│   └── hub/                     # Lab 3 — Hub сервіс
-│       ├── main.py              # Точка входу Hub: запуск HubService
-│       ├── service.py           # HubService: MQTT → asyncio.Queue → Redis backlog → Store API
-│       └── gateway.py           # StoreApiGateway: async HTTP-адаптер до Store API (httpx)
+│   ├── hub/                     # Lab 3 — Hub сервіс
+│   │   ├── main.py              # Точка входу Hub: запуск HubService
+│   │   ├── service.py           # HubService: MQTT → asyncio.Queue → Redis backlog → Store API
+│   │   └── gateway.py           # StoreApiGateway: async HTTP-адаптер до Store API (httpx)
+│   └── edge/                    # Lab 4 — Edge Data Logic
+│       ├── main.py              # Точка входу Edge
+│       ├── processor.py         # process_agent_data(): класифікація RoadState за акселерометром
+│       └── adapters.py          # AgentGateway, HubGateway, AgentMqttAdapter, HubMqttAdapter
 ├── docker/
 │   ├── Dockerfile.agent         # Образ агента
 │   ├── Dockerfile.store         # Образ Store API
 │   ├── Dockerfile.hub           # Образ Hub
-│   ├── docker-compose.yaml      # Unified: agent + mqtt + postgres + pgadmin + store + redis + hub
+│   ├── Dockerfile.edge          # Образ Edge
+│   ├── docker-compose.yaml      # Unified: agent + mqtt + postgres + pgadmin + store + redis + hub + edge
 │   ├── mosquitto/               # Конфігурація брокера Mosquitto
 │   └── db/
 │       └── structure.sql        # Ініціалізація таблиці processed_agent_data
@@ -202,6 +208,22 @@ Hub накопичує дані від агента через MQTT-топік `
 
     Після накопичення `HUB_BATCH_SIZE` повідомлень (або через `HUB_FLUSH_INTERVAL_SECONDS` секунд) дані з'являться у PostgreSQL (перевірити у pgAdmin або через `GET /processed_agent_data/`).
 
+### Lab 4 — Запуск Edge Data Logic
+
+Edge підписується на `agent_data_topic`, класифікує стан дорожнього покриття за даними акселерометра та публікує результат у `processed_agent_data_topic` для Hub.
+
+16. **Переконатися, що запущені MQTT-брокер та Hub** (кроки вище).
+
+17. **Запустити Edge**:
+
+    ```bash
+    just run-edge
+    ```
+
+18. **Перевірити** у MQTT Explorer — після запуску обидва топіки мають бути активними:
+    - `agent_data_topic` — сирі дані від Agent
+    - `processed_agent_data_topic` — класифіковані дані з `road_state` від Edge
+
 ## 🐳 Запуск у Docker
 
 Проєкт включає єдиний `docker-compose.yaml`, що запускає всі сервіси одночасно:
@@ -257,6 +279,7 @@ pre-commit run --all-files
 - `just run-agent` — запускає агент локально (`python -m src.agent.main`).
 - `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`).
 - `just run-hub` — запускає Hub локально (`python -m src.hub.main`).
+- `just run-edge` — запускає Edge локально (`python -m src.edge.main`).
 - `just test` — запускає модульні тести за допомогою `pytest`.
 - `just lint` — перевіряє код за допомогою `ruff`.
 - `just format` — форматування коду (`ruff format`).

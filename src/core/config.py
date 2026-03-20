@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     mqtt_broker_host: str = "localhost"
     mqtt_broker_port: int = 1883
     mqtt_topic: str = "agent_data_topic"
-    delay: float = 0.1
+    delay: float = 5
     batch_size: int = 5
 
     accelerometer_file: str = "data/accelerometer.csv"

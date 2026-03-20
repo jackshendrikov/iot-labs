@@ -12,8 +12,11 @@ run-store:
 run-hub:
     uv run python -m src.hub.main
 
+run-edge:
+    python -m src.edge.main
+
 test:
-    uv run pytest -q
+    uv run pytest --tb=line
 
 lint:
     uv run ruff check src tests

@@ -28,7 +28,7 @@ services:
       MQTT_BROKER_HOST: "mqtt"
       MQTT_BROKER_PORT: 1883
       MQTT_TOPIC: "agent_data_topic"
-      DELAY: 0.1
+      DELAY: 5
       BATCH_SIZE: 5
       LOG_LEVEL: "INFO"
     networks:
@@ -125,6 +125,23 @@ services:
       - mqtt_network
       - hub_store_network
       - hub_redis_network
+
+  # Edge
+  edge:
+    container_name: edge
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.edge
+    depends_on:
+      - mqtt
+      - hub
+    environment:
+      MQTT_BROKER_HOST: mqtt
+      MQTT_BROKER_PORT: 1883
+      EDGE_MQTT_TOPIC: agent_data_topic
+      HUB_MQTT_TOPIC: processed_agent_data_topic
+    networks:
+      - mqtt_network
 
 networks:
   mqtt_network:
