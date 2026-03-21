@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     mqtt_topic: str = "agent_data_topic"
     delay: float = 5
     batch_size: int = 5
+    loop_reading: bool = False
 
     accelerometer_file: str = "data/accelerometer.csv"
     gps_file: str = "data/gps.csv"

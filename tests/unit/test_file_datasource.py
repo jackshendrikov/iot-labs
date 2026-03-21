@@ -81,12 +81,32 @@ class TestRead:
         assert record.gps.longitude == pytest.approx(30.52)
 
     def test_circular_reading_wraps_around(self, csv_files):
-        """Batch більший за кількість рядків — має читати з початку."""
+        """Batch більший за кількість рядків, тож має читати з початку."""
         ds = FileDatasource(*csv_files, batch_size=5)
         ds.start_reading()
         records = ds.read()
         ds.stop_reading()
         assert len(records) == 5
+
+    def test_non_circular_reading_stops_at_end_of_file(self, csv_files):
+        """Без циклічного читання повертається лише наявна кількість записів."""
+        ds = FileDatasource(*csv_files, batch_size=5, loop_reading=False)
+        ds.start_reading()
+        records = ds.read()
+        ds.stop_reading()
+        assert len(records) == 3
+
+    def test_non_circular_reading_returns_empty_after_exhaustion(self, csv_files):
+        """Після вичерпання файлу повертає порожній список."""
+        ds = FileDatasource(*csv_files, batch_size=2, loop_reading=False)
+        ds.start_reading()
+        first = ds.read()
+        second = ds.read()
+        third = ds.read()
+        ds.stop_reading()
+        assert len(first) == 2
+        assert len(second) == 1
+        assert third == []
 
     def test_two_sequential_reads(self, csv_files):
         ds = FileDatasource(*csv_files, batch_size=2)

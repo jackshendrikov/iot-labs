@@ -2,6 +2,8 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 
 from src.api.router import router
 from src.core.logger import logger
@@ -22,11 +24,20 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="Road Vision: Store API",
         description="API для зберігання та отримання оброблених даних про стан дорожнього покриття.",
-        version="1.2.0",
+        version="1.3.0",
         lifespan=lifespan,
     )
 
     application.include_router(router)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:8000"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    application.mount("/ui", StaticFiles(directory="src/ui", html=True), name="UI")
+
     return application
 
 

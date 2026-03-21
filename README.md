@@ -1,19 +1,23 @@
 # Агент моніторингу стану дорожнього покриття
 
-Цей репозиторій містить реалізацію трьох модулів системи моніторингу стану дорожнього покриття:
+Цей репозиторій містить реалізацію п'яти модулів системи моніторингу стану дорожнього покриття:
 
 - **Lab 1 — Agent**: емулює роботу датчиків (акселерометра, GPS та температурного датчика) шляхом читання даних з CSV‑файлів, агрегації записів та відправлення їх у брокер MQTT.
 - **Lab 2 — Store API**: FastAPI‑сервіс для зберігання оброблених даних у PostgreSQL із WebSocket‑підпискою для UI‑клієнтів.
 - **Lab 3 — Hub**: сервіс накопичення та пакетної обробки оброблених даних перед збереженням у БД через Store API. Отримує дані через MQTT, накопичує в Redis-буфері, відправляє пакетами на Store API.
 - **Lab 4 — Edge Data Logic**: сервіс первинної обробки даних агента — підписується на `agent_data_topic`, класифікує стан дорожнього покриття за даними акселерометра та публікує `ProcessedAgentData` у `processed_agent_data_topic`.
+- **Lab 5 — Map UI**: веб‑інтерфейс для візуалізації маршруту та стану дорожнього покриття на інтерактивній карті. Завантажує історичні дані через `GET /processed_agent_data/` та отримує нові точки у реальному часі через WebSocket `/ws`. Маршрут забарвлюється сегментами відповідно до `road_state`; графіки акселерометра відображають осі Z (відхилення від baseline) та X/Y.
 
-Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `paho-mqtt` для Edge, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
+Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `paho-mqtt` для Edge, `Leaflet.js` + `Chart.js` для Map UI, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
 
 ## 📁 Структура проєкту
 
 ```
 iot-labs/
 ├── data/                        # Тестові CSV‑файли з даними
+│   ├── accelerometer.csv        # Дані акселерометра
+│   ├── gps.csv                  # GPS-координати
+│   └── temperature.csv
 ├── src/                         # Вихідний код системи
 │   ├── core/                    # Спільне ядро: конфіг та логер
 │   │   ├── config.py            # Налаштування (MQTT, PostgreSQL, Redis, Store, Hub, Edge) з .env та змінних оточення
@@ -30,16 +34,16 @@ iot-labs/
 │   ├── repository/              # Шар доступу до даних (Repository pattern)
 │   │   └── processed_agent_data.py
 │   ├── api/                     # FastAPI застосунок
-│   │   ├── app.py               # Фабрика застосунку та lifespan
+│   │   ├── app.py               # Фабрика застосунку, lifespan, монтування StaticFiles /ui
 │   │   ├── router.py            # Агрегатор роутерів
 │   │   ├── dependencies.py      # FastAPI Depends: сесія БД
 │   │   ├── ws_manager.py        # ConnectionManager для WebSocket
 │   │   └── routes/              # Маршрути, розбиті за відповідальністю
-│   │       ├── processed_agent_data.py  # CRUDL ендпоінти
+│   │       ├── processed_agent_data.py  # CRUDL ендпоінти + WS broadcast при POST
 │   │       ├── health.py        # /health із перевіркою БД (SELECT 1)
-│   │       └── websocket.py     # /ws/ WebSocket ендпоінт
+│   │       └── websocket.py     # /ws WebSocket ендпоінт
 │   ├── agent/                   # Lab 1 — логіка агента
-│   │   ├── file_datasource.py   # Читання CSV з циклічним та пакетним режимами
+│   │   ├── file_datasource.py   # Читання CSV: циклічний (LOOP_READING=true) та кінцевий режими
 │   │   └── main.py              # Точка входу агента: підключення до MQTT та публікація даних
 │   ├── store/                   # Lab 2 — точка входу Store API
 │   │   └── main.py              # Запуск uvicorn
@@ -47,10 +51,14 @@ iot-labs/
 │   │   ├── main.py              # Точка входу Hub: запуск HubService
 │   │   ├── service.py           # HubService: MQTT → asyncio.Queue → Redis backlog → Store API
 │   │   └── gateway.py           # StoreApiGateway: async HTTP-адаптер до Store API (httpx)
-│   └── edge/                    # Lab 4 — Edge Data Logic
-│       ├── main.py              # Точка входу Edge
-│       ├── processor.py         # process_agent_data(): класифікація RoadState за акселерометром
-│       └── adapters.py          # AgentGateway, HubGateway, AgentMqttAdapter, HubMqttAdapter
+│   ├── edge/                    # Lab 4 — Edge Data Logic
+│   │   ├── main.py              # Точка входу Edge
+│   │   ├── processor.py         # process_agent_data(): класифікація RoadState за акселерометром
+│   │   └── adapters.py          # AgentGateway, HubGateway, AgentMqttAdapter, HubMqttAdapter
+│   └── ui/                      # Lab 5 — Map UI (статичні файли, роздаються Store API)
+│       ├── index.html           # Розмітка: topbar, карта Leaflet, sidebar з KPI та логом
+│       ├── style.css            # Темна дизайн-система (CartoDB Dark Matter, CSS custom properties)
+│       └── app.js               # Логіка: REST-завантаження історії, WS live-stream, Chart.js графіки
 ├── docker/
 │   ├── Dockerfile.agent         # Образ агента
 │   ├── Dockerfile.store         # Образ Store API
@@ -104,6 +112,7 @@ iot-labs/
    MQTT_TOPIC=agent_data_topic
    DELAY=0.1
    BATCH_SIZE=5
+   LOOP_READING=true
    ACCELEROMETER_FILE=data/accelerometer.csv
    GPS_FILE=data/gps.csv
    TEMPERATURE_FILE=data/temperature.csv
@@ -147,7 +156,7 @@ iot-labs/
    just run-agent
    ```
 
-   Агент почне циклічно читати дані з CSV‑файлів пакетами (`batch_size` записів), серіалізувати кожен запис у JSON та відправляти у зазначений MQTT‑топік.
+   Агент почне читати дані з CSV‑файлів пакетами (`batch_size` записів), серіалізувати кожен запис у JSON та відправляти у зазначений MQTT‑топік. За замовчуванням увімкнено циклічний режим (`LOOP_READING=true`); для одноразового проходу по файлах встановіть `LOOP_READING=false` — агент зупиниться після досягнення кінця CSV.
 
 7. **Перевірити результати** можна у [MQTT Explorer](https://mqtt-explorer.com/), підписавшись на ваш топік.
 
@@ -201,7 +210,7 @@ Hub накопичує дані від агента через MQTT-топік `
       "agent_data": {
         "accelerometer": {"x": 0.1, "y": 0.2, "z": 9.8},
         "gps": {"latitude": 50.45, "longitude": 30.52},
-        "timestamp": "2026-03-19T17:00:00Z"
+        "timestamp": "2026-03-21T17:00:00Z"
       }
     }
     ```
@@ -224,6 +233,29 @@ Edge підписується на `agent_data_topic`, класифікує ст
     - `agent_data_topic` — сирі дані від Agent
     - `processed_agent_data_topic` — класифіковані дані з `road_state` від Edge
 
+### Lab 5 — Перегляд Map UI
+
+Map UI роздається безпосередньо Store API як статичний сайт (FastAPI `StaticFiles`), тому окремого сервісу не потрібно.
+
+19. **Переконатися, що Store API запущено** (крок 9 або `just docker-up`).
+
+20. **Відкрити у браузері**:
+
+    ```
+    http://localhost:8000/ui/
+    ```
+
+    Сторінка завантажить усі збережені точки через `GET /processed_agent_data/` та підключиться до WebSocket `ws://localhost:8000/ws` для отримання нових точок у реальному часі.
+
+21. **Що відображається**:
+    - **Карта** (CartoDB Dark Matter) — маршрут забарвлений сегментами: <span style="color:#3fb950">■</span> `GOOD` / <span style="color:#d29922">■</span> `WARNING` / <span style="color:#f85149">■</span> `BAD`; пульсуючий маркер — поточна позиція автомобіля.
+    - **KPI** — лічильники Good / Warning / Bad з пропорційними індикаторами.
+    - **Графік Z** — відхилення осі Z від baseline (16 500) з анотаційними лініями порогів Warning/Bad.
+    - **Графік X/Y** — бічне прискорення в реальному часі.
+    - **Лог подій** — остання 80 точок із координатами, значеннями акселерометра та часом.
+
+    > **Примітка щодо LOOP_READING**: для більш показової демонстрації маршруту рекомендується запускати агента з `LOOP_READING=false` — у такому разі кожна GPS-точка відображається рівно один раз, без повторень координат.
+
 ## 🐳 Запуск у Docker
 
 Проєкт включає єдиний `docker-compose.yaml`, що запускає всі сервіси одночасно:
@@ -237,6 +269,7 @@ just docker-up
 | Сервіс | URL |
 |---|---|
 | Store API / Swagger | [http://localhost:8000/docs](http://localhost:8000/docs) |
+| Map UI | [http://localhost:8000/ui/](http://localhost:8000/ui/) |
 | Health check | [http://localhost:8000/health](http://localhost:8000/health) |
 | pgAdmin | [http://localhost:5050](http://localhost:5050) |
 | MQTT broker | localhost:1883 |
@@ -277,7 +310,7 @@ pre-commit run --all-files
 
 - `just install` — встановлює усі залежності (включно з dev‑залежностями) через `uv`.
 - `just run-agent` — запускає агент локально (`python -m src.agent.main`).
-- `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`).
+- `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`). Map UI доступний на `/ui/`.
 - `just run-hub` — запускає Hub локально (`python -m src.hub.main`).
 - `just run-edge` — запускає Edge локально (`python -m src.edge.main`).
 - `just test` — запускає модульні тести за допомогою `pytest`.

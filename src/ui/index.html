@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Road Vision · Map UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Шрифти -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
+
+  <!-- Chart.js та плагін анотацій -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js" defer></script>
+
+  <!-- Lucide-іконки -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Анімація live-маркера автомобіля -->
+  <style>
+    @keyframes rv-pulse {
+      0%   { transform: scale(1);   opacity: 0.9; }
+      70%  { transform: scale(2.8); opacity: 0; }
+      100% { transform: scale(1);   opacity: 0; }
+    }
+
+    .rv-car {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #58a6ff;
+      box-shadow: 0 0 0 2px #0d1117, 0 0 0 3px #58a6ff;
+      position: relative;
+    }
+
+    .rv-car::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: #58a6ff;
+      animation: rv-pulse 1.6s ease-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Верхня панель -->
+    <header class="topbar">
+      <div class="topbar-brand">
+        <svg class="brand-logo" viewBox="0 0 32 32" fill="none" aria-label="Road Vision logo">
+          <circle cx="16" cy="16" r="15" stroke="#58a6ff" stroke-width="1.5"/>
+          <path d="M16 5 L16 27 M10 11 L16 5 L22 11" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="20" r="4" fill="#58a6ff" fill-opacity="0.2" stroke="#58a6ff" stroke-width="1.5"/>
+          <circle cx="16" cy="20" r="1.5" fill="#58a6ff"/>
+        </svg>
+        <div>
+          <div class="brand-name">Road Vision</div>
+          <div class="brand-sub">Моніторинг дорожнього покриття · IoT</div>
+        </div>
+      </div>
+
+      <div class="topbar-center" id="route-summary">
+        <span class="summary-item"><i data-lucide="map-pin" class="icon-xs"></i><span id="hdr-points">0</span> точок</span>
+        <span class="summary-sep">·</span>
+        <span class="summary-item"><i data-lucide="route" class="icon-xs"></i><span id="hdr-dist">0.0</span> км</span>
+        <span class="summary-sep">·</span>
+        <span class="summary-item" id="hdr-last-state-wrap">
+          <span class="state-dot" id="hdr-dot"></span>
+          <span id="hdr-last-state">—</span>
+        </span>
+      </div>
+
+      <div class="topbar-right">
+        <div class="status-pill" id="status-pill">
+          <span class="status-ring" id="status-ring"></span>
+          <span id="status-text">Підключення...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Робоча область -->
+    <div class="workspace">
+
+      <!-- Карта -->
+      <div class="map-wrap">
+        <div id="map"></div>
+
+        <!-- Легенда карти -->
+        <div class="map-legend">
+          <label class="leg-item">
+            <input type="checkbox" data-toggle="GOOD" checked />
+            <span class="leg-dot" style="background:#3fb950"></span>Good
+          </label>
+          <label class="leg-item">
+            <input type="checkbox" data-toggle="WARNING" checked />
+            <span class="leg-dot" style="background:#d29922"></span>Warning
+          </label>
+          <label class="leg-item">
+            <input type="checkbox" data-toggle="BAD" checked />
+            <span class="leg-dot" style="background:#f85149"></span>Bad
+          </label>
+        </div>
+
+        <!-- Кнопка масштабування до всього маршруту -->
+        <button class="map-btn" id="btn-fit" title="Показати весь маршрут" aria-label="Показати весь маршрут">
+          <i data-lucide="maximize-2"></i>
+        </button>
+      </div>
+
+      <!-- Бічна панель -->
+      <aside class="sidebar">
+
+        <!-- KPI-блок -->
+        <div class="kpi-row">
+          <div class="kpi kpi-good">
+            <div class="kpi-value" id="cnt-good">0</div>
+            <div class="kpi-label">Good</div>
+            <div class="kpi-bar"><div class="kpi-fill" id="bar-good"></div></div>
+          </div>
+          <div class="kpi kpi-warn">
+            <div class="kpi-value" id="cnt-warning">0</div>
+            <div class="kpi-label">Warning</div>
+            <div class="kpi-bar"><div class="kpi-fill" id="bar-warning"></div></div>
+          </div>
+          <div class="kpi kpi-bad">
+            <div class="kpi-value" id="cnt-bad">0</div>
+            <div class="kpi-label">Bad</div>
+            <div class="kpi-bar"><div class="kpi-fill" id="bar-bad"></div></div>
+          </div>
+        </div>
+
+        <!-- Графіки акселерометра -->
+        <section class="panel">
+          <div class="panel-head">
+            <i data-lucide="activity" class="icon-sm"></i>
+            <span>Акселерометр — вісь Z</span>
+            <span class="panel-sub">відхилення від baseline</span>
+          </div>
+          <div class="chart-wrap chart-tall">
+            <canvas id="chartZ"></canvas>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <i data-lucide="move" class="icon-sm"></i>
+            <span>Осі X та Y</span>
+            <span class="panel-sub">бічне прискорення</span>
+          </div>
+          <div class="chart-wrap chart-short">
+            <canvas id="chartXY"></canvas>
+          </div>
+        </section>
+
+        <!-- Журнал подій -->
+        <section class="panel panel-grow">
+          <div class="panel-head">
+            <i data-lucide="list" class="icon-sm"></i>
+            <span>Останні події</span>
+            <span class="panel-badge" id="log-badge">0</span>
+          </div>
+          <div class="event-log" id="event-log">
+            <div class="log-empty">
+              <i data-lucide="satellite" style="width:28px;height:28px;color:var(--text-faint)"></i>
+              <p>Очікуємо перших точок...</p>
+            </div>
+          </div>
+        </section>
+
+      </aside>
+    </div>
+  </div>
+
+  <script src="./app.js" defer></script>
+  <script>window.addEventListener("load", () => lucide.createIcons());</script>
+</body>
+</html>

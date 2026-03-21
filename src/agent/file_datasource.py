@@ -18,12 +18,14 @@ class FileDatasource:
         gps_filename: str,
         temperature_filename: str | None = None,
         batch_size: int = 5,
+        loop_reading: bool = True,
     ) -> None:
         """Ініціалізує джерело даних."""
         self.accelerometer_filename = accelerometer_filename
         self.gps_filename = gps_filename
         self.temperature_filename = temperature_filename
         self.batch_size = batch_size
+        self.loop_reading = loop_reading
 
         self._accelerometer_file: TextIO | None = None
         self._gps_file: TextIO | None = None
@@ -60,6 +62,8 @@ class FileDatasource:
             # Зчитуємо наступний рядок акселерометра і GPS
             acc_row = self._next_row(self._accelerometer_reader, self._accelerometer_file, self.accelerometer_filename)  # type: ignore
             gps_row = self._next_row(self._gps_reader, self._gps_file, self.gps_filename)  # type: ignore
+            if acc_row is None or gps_row is None:
+                break
 
             # Побудова об'єктів
             accelerometer = Accelerometer(
@@ -76,6 +80,9 @@ class FileDatasource:
             # Читання температурного датчика, якщо файл задано
             if self.temperature_filename and self._temperature_reader:
                 temp_row = self._next_row(self._temperature_reader, self._temperature_file, self.temperature_filename)  # type: ignore
+                if not temp_row:
+                    break
+
                 temperature_sensor = TemperatureSensor(
                     temperature=float(temp_row.get("temperature", "0")),
                     humidity=float(temp_row.get("humidity", "0")),
@@ -101,11 +108,15 @@ class FileDatasource:
         self._temperature_reader = None
         logger.debug("Читання файлів завершено та ресурси звільнено")
 
-    def _next_row(self, reader: _CsvReader, file_obj: TextIO, filename: str) -> _CsvRow:
+    def _next_row(self, reader: _CsvReader, file_obj: TextIO, filename: str) -> _CsvRow | None:
         """Отримує наступний рядок з reader, перезапускаючи читання у разі необхідності."""
         try:
             return next(reader)
         except StopIteration:
+            if not self.loop_reading:
+                logger.debug(f"Досягнуто кінця файлу {filename}. Циклічне читання вимкнено.")
+                return None
+
             # Коли дочитали до кінця, починаємо спочатку
             new_reader = self._reset_reader(file_obj, filename)
 

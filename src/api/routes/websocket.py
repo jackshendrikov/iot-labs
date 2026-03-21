@@ -5,7 +5,7 @@ from src.api.ws_manager import manager
 router = APIRouter()
 
 
-@router.websocket("/ws/")
+@router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket-ендпоінт для отримання нових записів у реальному часі."""
     await manager.connect(websocket)

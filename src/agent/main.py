@@ -10,12 +10,12 @@ from src.models import AggregatedData
 
 
 def connect_mqtt() -> mqtt_client.Client:
-    """Створює та налаштовує MQTT‑клієнт."""
+    """Створює та налаштовує MQTT-клієнт."""
 
     host, port = settings.mqtt_broker_host, settings.mqtt_broker_port
 
     def on_connect(client: mqtt_client.Client, userdata, flags, rc) -> None:
-        """Обробляє подію підключення до MQTT‑брокера."""
+        """Обробляє подію підключення до MQTT-брокера."""
         match rc:
             case 0:
                 logger.info(f"Підключено до брокера MQTT {host}:{port}")
@@ -32,12 +32,16 @@ def connect_mqtt() -> mqtt_client.Client:
 
 
 def publish_loop(client: mqtt_client.Client, datasource: FileDatasource) -> None:
-    """Нескінченно читає дані та відправляє їх у MQTT."""
+    """Читає дані та відправляє їх у MQTT."""
     datasource.start_reading()
     try:
         while True:
             time.sleep(settings.delay)
             records: list[AggregatedData] = datasource.read()
+            if not records:
+                logger.info("Джерело даних вичерпано. Завершуємо публікацію.")
+                break
+
             for record in records:
                 msg = record.model_dump_json()
                 result = client.publish(settings.mqtt_topic, msg)
@@ -59,6 +63,7 @@ def run() -> None:
         gps_filename=settings.gps_file,
         temperature_filename=settings.temperature_file,
         batch_size=settings.batch_size,
+        loop_reading=settings.loop_reading,
     )
     publish_loop(client, datasource)
 
