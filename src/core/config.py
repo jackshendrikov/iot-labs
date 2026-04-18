@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_user: str = "user"
     postgres_password: str = "pass"
-    postgres_db: str = "road_vision"
+    postgres_db: str = "sensors"
     db_echo: bool = False
 
     store_host: str = "0.0.0.0"

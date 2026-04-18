@@ -22,8 +22,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """Фабрика FastAPI-застосунку."""
     application = FastAPI(
-        title="Road Vision: Store API",
-        description="API для зберігання та отримання оброблених даних про стан дорожнього покриття.",
+        title="UrbanPulse IoT: Store API",
+        description="API для зберігання та отримання телеметрії міських, транспортних та інфраструктурних сенсорів.",
         version="1.3.0",
         lifespan=lifespan,
     )

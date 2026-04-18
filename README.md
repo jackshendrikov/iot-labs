@@ -1,12 +1,13 @@
-# Агент моніторингу стану дорожнього покриття
+# UrbanPulse IoT
 
-Цей репозиторій містить реалізацію п'яти модулів системи моніторингу стану дорожнього покриття:
+Цей репозиторій містить реалізацію багатокомпонентної IoT-платформи міського моніторингу, яка еволюціонувала від сценарію контролю стану дорожнього покриття до універсальної системи збору, обробки та збереження різнорідної сенсорної телеметрії:
 
 - **Lab 1 — Agent**: емулює роботу датчиків (акселерометра, GPS та температурного датчика) шляхом читання даних з CSV‑файлів, агрегації записів та відправлення їх у брокер MQTT.
 - **Lab 2 — Store API**: FastAPI‑сервіс для зберігання оброблених даних у PostgreSQL із WebSocket‑підпискою для UI‑клієнтів.
 - **Lab 3 — Hub**: сервіс накопичення та пакетної обробки оброблених даних перед збереженням у БД через Store API. Отримує дані через MQTT, накопичує в Redis-буфері, відправляє пакетами на Store API.
 - **Lab 4 — Edge Data Logic**: сервіс первинної обробки даних агента — підписується на `agent_data_topic`, класифікує стан дорожнього покриття за даними акселерометра та публікує `ProcessedAgentData` у `processed_agent_data_topic`.
 - **Lab 5 — Map UI**: веб‑інтерфейс для візуалізації маршруту та стану дорожнього покриття на інтерактивній карті. Завантажує історичні дані через `GET /processed_agent_data/` та отримує нові точки у реальному часі через WebSocket `/ws`. Маршрут забарвлюється сегментами відповідно до `road_state`; графіки акселерометра відображають осі Z (відхилення від baseline) та X/Y.
+- **Lab 6 — Universal Sensor Structure**: універсальна розширювана структура даних для нових типів сенсорних об'єктів (паркомісця, світлофори, сенсори якості повітря, лічильники електроенергії). Побудована на дискримінованій спілці Pydantic-payload-ів та єдиній таблиці PostgreSQL з JSONB для типоспецифічних полів. Включає генератор синтетичних даних, що відтворює патерни відкритих датасетів (SFpark, EEA AQ, smart-metering).
 
 Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `paho-mqtt` для Edge, `Leaflet.js` + `Chart.js` для Map UI, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
 
@@ -27,7 +28,15 @@ iot-labs/
 │   │   ├── gps.py
 │   │   ├── temperature_sensor.py
 │   │   ├── aggregated_data.py
-│   │   └── processed_agent_data.py
+│   │   ├── processed_agent_data.py
+│   │   ├── geo_location.py      # Lab 6: WGS-84 геоточка
+│   │   ├── sensor_type.py       # Lab 6: StrEnum типів сенсорів
+│   │   ├── sensor_reading.py    # Lab 6: SensorReading + SensorMetadata + ...InDB
+│   │   └── payloads/            # Lab 6: типоспецифічні payload-и (discriminated union)
+│   │       ├── car_park.py
+│   │       ├── traffic_light.py
+│   │       ├── air_quality.py
+│   │       └── energy_meter.py
 │   ├── db/                      # Шар бази даних
 │   │   ├── base.py              # SQLAlchemy async engine, session factory, Base, get_db_session
 │   │   └── orm_models.py        # ORM‑модель ProcessedAgentDataORM
@@ -55,10 +64,13 @@ iot-labs/
 │   │   ├── main.py              # Точка входу Edge
 │   │   ├── processor.py         # process_agent_data(): класифікація RoadState за акселерометром
 │   │   └── adapters.py          # AgentGateway, HubGateway, AgentMqttAdapter, HubMqttAdapter
-│   └── ui/                      # Lab 5 — Map UI (статичні файли, роздаються Store API)
-│       ├── index.html           # Розмітка: topbar, карта Leaflet, sidebar з KPI та логом
-│       ├── style.css            # Темна дизайн-система (CartoDB Dark Matter, CSS custom properties)
-│       └── app.js               # Логіка: REST-завантаження історії, WS live-stream, Chart.js графіки
+│   ├── ui/                      # Lab 5 — Map UI (статичні файли, роздаються Store API)
+│   │   ├── index.html           # Розмітка: topbar, карта Leaflet, sidebar з KPI та логом
+│   │   ├── style.css            # Темна дизайн-система (CartoDB Dark Matter, CSS custom properties)
+│   │   └── app.js               # Логіка: REST-завантаження історії, WS live-stream, Chart.js графіки
+│   └── synthetic/               # Lab 6 — Генератор синтетичних показань нових сенсорів
+│       ├── generator.py         # generate_readings / write_csv_files / read_csv_file
+│       └── main.py              # CLI: CSV у data/ + опційний --seed-db у PostgreSQL
 ├── docker/
 │   ├── Dockerfile.agent         # Образ агента
 │   ├── Dockerfile.store         # Образ Store API
@@ -256,6 +268,122 @@ Map UI роздається безпосередньо Store API як стати
 
     > **Примітка щодо LOOP_READING**: для більш показової демонстрації маршруту рекомендується запускати агента з `LOOP_READING=false` — у такому разі кожна GPS-точка відображається рівно один раз, без повторень координат.
 
+### Lab 6 — Universal Sensor Structure
+
+Lab 6 розширює систему універсальною структурою для довільних сенсорних об'єктів. Замість окремих таблиць під кожен новий тип використовується **індексований envelope + JSONB payload**: нові сенсори додаються лише описом Pydantic-моделі, без міграції БД.
+
+#### Структура даних
+
+```
+SensorReading
+├── metadata: SensorMetadata
+│   ├── sensor_id: str
+│   ├── sensor_type: SensorType       # car_park | traffic_light | air_quality | energy_meter
+│   ├── location: GeoLocation         # latitude, longitude (WGS-84)
+│   └── timestamp: datetime
+└── payload: SensorPayload            # discriminated union за полем `kind`
+    ├── CarParkPayload                # total_spots, occupied_spots, avg_stay_minutes, occupancy_rate (computed)
+    ├── TrafficLightPayload           # state, cycle_seconds, queue_length, pedestrian_request
+    ├── AirQualityPayload             # pm2_5, pm10, no2, o3, temperature_c, humidity_percent, pressure_hpa
+    └── EnergyMeterPayload            # power_kw, voltage_v, current_a, cumulative_kwh, power_factor
+```
+
+Таблиця `sensor_readings` (див. `docker/db/structure.sql`) зберігає метадані колонками (з індексами на `sensor_id`, `sensor_type`, `timestamp` та GIN-індексом на `payload`), що дає швидкий пошук без втрати типоспецифічної семантики. Під SQLite (тести) JSONB автоматично заміщується на стандартний `JSON`.
+
+#### Додавання нового типу сенсора
+
+1. Створити `src/models/payloads/<new_type>.py` з полем `kind: Literal["<new_type>"]`.
+2. Додати клас у `SensorPayload = Annotated[Union[..., NewPayload], Field(discriminator="kind")]` у `src/models/payloads/__init__.py`.
+3. Додати значення у `SensorType` StrEnum.
+
+Міграція БД **не потрібна** — JSONB приймає будь-яку форму.
+
+#### Синтетичні дані та open-dataset-походження
+
+Генератор `src/synthetic/generator.py` відтворює патерни реальних відкритих датасетів:
+
+| Тип сенсора      | Open-dataset натхнення                          | Патерни, що моделюються                                 |
+|------------------|-------------------------------------------------|----------------------------------------------------------|
+| `car_park`       | SFMTA SFpark                                    | Синусоїда зайнятості з піком о 13:00, сталий `total_spots` |
+| `traffic_light`  | Kyiv Open Data (мапа світлофорів)               | Цикли 60–120 с, 4-фазовий обхід R→G→Y→R, пішохідні запити |
+| `air_quality`    | EEA AQ e-reporting, SaveEcoBot                  | Нормальний розподіл PM2.5/PM10/NO₂/O₃, T, RH, P          |
+| `energy_meter`   | Industrial smart-metering telemetry             | Монотонно зростаючий `cumulative_kwh`, PF 0.85–0.99      |
+
+Запуск:
+
+```bash
+# лише CSV у data/
+just generate-sensors
+
+# CSV + вставка у PostgreSQL (потрібен Store API + БД up)
+just seed-sensors
+```
+
+Після `just generate-sensors` у `data/` з'являться:
+
+- `data/car_parks.csv` — 5 паркінгів × 24 години
+- `data/traffic_lights.csv` — 8 світлофорів × 20 зрізів
+- `data/air_quality.csv` — 4 станції × 24 години
+- `data/energy_meters.csv` — 3 лічильники × 24 зрізи
+
+CSV-формат (`sensor_id, sensor_type, latitude, longitude, timestamp, payload`), де `payload` — JSON-рядок. Функція `read_csv_file()` відновлює повноцінний `SensorReading` (перевірено round-trip-тестами).
+
+#### REST API
+
+Маршрути змонтовані у Store API (Lab 2) поруч із `/processed_agent_data/`:
+
+| Метод   | URL                                    | Опис                                           |
+|---------|----------------------------------------|------------------------------------------------|
+| POST    | `/sensor_readings/`                    | Пакетне збереження показань                    |
+| GET     | `/sensor_readings/`                    | Список з фільтрами `sensor_type`, `sensor_id`, `limit` |
+| GET     | `/sensor_readings/{id}`                | Отримання одного запису                        |
+| DELETE  | `/sensor_readings/{id}`                | Видалення запису                               |
+
+Приклад тіла POST (пакет із двох типів сенсорів):
+
+```json
+[
+  {
+    "metadata": {
+      "sensor_id": "car_park-001",
+      "sensor_type": "car_park",
+      "location": {"latitude": 50.45, "longitude": 30.52},
+      "timestamp": "2026-04-17T10:00:00Z"
+    },
+    "payload": {
+      "kind": "car_park",
+      "total_spots": 100,
+      "occupied_spots": 42,
+      "avg_stay_minutes": 65.0
+    }
+  },
+  {
+    "metadata": {
+      "sensor_id": "tl-005",
+      "sensor_type": "traffic_light",
+      "location": {"latitude": 50.44, "longitude": 30.51},
+      "timestamp": "2026-04-17T10:01:00Z"
+    },
+    "payload": {
+      "kind": "traffic_light",
+      "state": "red",
+      "cycle_seconds": 90,
+      "queue_length": 4,
+      "pedestrian_request": false
+    }
+  }
+]
+```
+
+#### Тести
+
+- `tests/unit/test_sensor_readings.py` — 15 тестів: enum-и, валідація полів, дискримінатор `kind`.
+- `tests/integration/test_sensor_readings_api.py` — 10 тестів через `httpx.AsyncClient` + in-memory SQLite: CRUDL, фільтри, round-trip JSON payload.
+
+```bash
+just test   # усі 108 тестів (83 попередніх + 25 Lab 6)
+```
+
 ## 🐳 Запуск у Docker
 
 Проєкт включає єдиний `docker-compose.yaml`, що запускає всі сервіси одночасно:
@@ -313,6 +441,8 @@ pre-commit run --all-files
 - `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`). Map UI доступний на `/ui/`.
 - `just run-hub` — запускає Hub локально (`python -m src.hub.main`).
 - `just run-edge` — запускає Edge локально (`python -m src.edge.main`).
+- `just generate-sensors` — генерує синтетичні CSV у `data/` для нових типів сенсорів (Lab 6).
+- `just seed-sensors` — генерує та одразу записує показання у PostgreSQL (`sensor_readings`).
 - `just test` — запускає модульні тести за допомогою `pytest`.
 - `just lint` — перевіряє код за допомогою `ruff`.
 - `just format` — форматування коду (`ruff format`).

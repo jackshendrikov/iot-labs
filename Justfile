@@ -15,6 +15,12 @@ run-hub:
 run-edge:
     python -m src.edge.main
 
+generate-sensors:
+    uv run python -m src.synthetic.main
+
+seed-sensors:
+    uv run python -m src.synthetic.main --seed-db
+
 test:
     uv run pytest --tb=line
 
@@ -32,6 +38,12 @@ precommit:
 
 docker-up:
     Set-Location docker; docker compose up --build
+
+docker-up-sensors:
+    Set-Location docker; docker compose -f docker-compose.sensors.yaml up --build postgres_db store pgadmin
+
+docker-down-sensors:
+    Set-Location docker; docker compose -f docker-compose.sensors.yaml down -v
 
 docker-down:
     Set-Location docker; docker compose down -v
