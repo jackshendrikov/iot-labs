@@ -1,7 +1,7 @@
 [project]
 name = "urbanpulse-iot"
-version = "0.3.0"
-description = "Extensible urban IoT monitoring platform: Agent + Store API + Hub"
+version = "1.0.0"
+description = "Extensible urban IoT monitoring platform"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -13,7 +13,8 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.48",
     "asyncpg>=0.31.0",
     "httpx>=0.28.1",
-    "redis>=5.0.0"
+    "redis>=5.0.0",
+    "prometheus-client>=0.25.0"
 ]
 
 [project.optional-dependencies]

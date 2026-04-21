@@ -1,0 +1,143 @@
+{
+  "editable": true,
+  "id": null,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Поточна макс. PM2.5",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT MAX((payload->>'pm2_5')::float) AS max_pm25 FROM sensor_readings WHERE sensor_type='air_quality' AND timestamp > NOW() - INTERVAL '15 minutes'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "µg/m³" } }
+    },
+    {
+      "type": "stat",
+      "title": "Середня PM2.5",
+      "id": 2,
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT AVG((payload->>'pm2_5')::float) AS avg_pm25 FROM sensor_readings WHERE sensor_type='air_quality' AND timestamp > NOW() - INTERVAL '15 minutes'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "µg/m³" } }
+    },
+    {
+      "type": "stat",
+      "title": "Unhealthy стацій (PM2.5 ≥ 35)",
+      "id": 3,
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(DISTINCT sensor_id) FROM sensor_readings WHERE sensor_type='air_quality' AND (payload->>'pm2_5')::float >= 35 AND timestamp > NOW() - INTERVAL '15 minutes'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } }
+    },
+    {
+      "type": "stat",
+      "title": "Енергія — сумарна активна потужність",
+      "id": 4,
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT SUM((payload->>'power_kw')::float) AS total_kw FROM (SELECT DISTINCT ON (sensor_id) sensor_id, payload FROM sensor_readings WHERE sensor_type='energy_meter' AND timestamp > NOW() - INTERVAL '15 minutes' ORDER BY sensor_id, timestamp DESC) latest",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "kwatt" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "PM2.5 у часі за сенсорами",
+      "id": 5,
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 10 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT timestamp AS time, sensor_id AS metric, (payload->>'pm2_5')::float AS value FROM sensor_readings WHERE sensor_type='air_quality' AND $__timeFilter(timestamp) ORDER BY timestamp",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "µg/m³" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Електрична потужність у часі",
+      "id": 6,
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 10 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT timestamp AS time, sensor_id AS metric, (payload->>'power_kw')::float AS value FROM sensor_readings WHERE sensor_type='energy_meter' AND $__timeFilter(timestamp) ORDER BY timestamp",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "kwatt" } }
+    },
+    {
+      "type": "bargauge",
+      "title": "Топ переповнених паркінгів",
+      "id": 7,
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sensor_id, (payload->>'occupied_spots')::float / (payload->>'total_spots')::float AS occupancy FROM (SELECT DISTINCT ON (sensor_id) sensor_id, payload FROM sensor_readings WHERE sensor_type='car_park' AND timestamp > NOW() - INTERVAL '1 hour' ORDER BY sensor_id, timestamp DESC) latest ORDER BY occupancy DESC LIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "options": { "orientation": "horizontal", "displayMode": "gradient" }
+    },
+    {
+      "type": "bargauge",
+      "title": "Топ заторних перехресть",
+      "id": 8,
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sensor_id, (payload->>'queue_length')::int AS queue FROM (SELECT DISTINCT ON (sensor_id) sensor_id, payload FROM sensor_readings WHERE sensor_type='traffic_light' AND timestamp > NOW() - INTERVAL '1 hour' ORDER BY sensor_id, timestamp DESC) latest ORDER BY queue DESC LIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "options": { "orientation": "horizontal", "displayMode": "gradient" }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["urbanpulse", "sensors"],
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "UrbanPulse — Sensors (Air / Energy / Traffic)",
+  "uid": "urbanpulse-air",
+  "version": 1
+}

@@ -1,6 +1,10 @@
+"""Тести для batch-логіки HubService."""
+
 import asyncio
+from typing import Any, cast
 
 import pytest
+from pytest import MonkeyPatch
 
 from src.hub.service import HubService
 from src.models import Accelerometer, AggregatedData, Gps, ProcessedAgentData, RoadState
@@ -9,6 +13,8 @@ _REDIS_KEY = "hub:processed_agent_data"
 
 
 class FakeRedis:
+    """Мінімальна in-memory підміна Redis для unit-тестів."""
+
     def __init__(self) -> None:
         self._storage: dict[str, list[str]] = {}
 
@@ -36,6 +42,7 @@ class FakeRedis:
 
 
 def _make_data(index: int) -> ProcessedAgentData:
+    """Створює тестовий запис оброблених дорожніх даних."""
     return ProcessedAgentData(
         road_state=RoadState.GOOD,
         agent_data=AggregatedData(
@@ -47,11 +54,16 @@ def _make_data(index: int) -> ProcessedAgentData:
 
 @pytest.fixture
 def redis_client() -> FakeRedis:
+    """Повертає ізольований fake Redis для кожного тесту."""
     return FakeRedis()
 
 
 class TestHubService:
-    async def test_flushes_batch_when_batch_size_reached(self, redis_client, monkeypatch):
+    async def test_flushes_batch_when_batch_size_reached(
+        self,
+        redis_client: FakeRedis,
+        monkeypatch: MonkeyPatch,
+    ) -> None:
         saved_batches: list[list[ProcessedAgentData]] = []
 
         async def save_batch(batch: list[ProcessedAgentData]) -> bool:
@@ -59,7 +71,7 @@ class TestHubService:
             return True
 
         service = HubService(
-            redis_client=redis_client,
+            redis_client=cast(Any, redis_client),
             batch_size=2,
             flush_interval_seconds=60,
         )
@@ -75,7 +87,11 @@ class TestHubService:
         assert len(saved_batches[0]) == 2
         assert await redis_client.llen(_REDIS_KEY) == 0
 
-    async def test_flushes_partial_batch_on_stop(self, redis_client, monkeypatch):
+    async def test_flushes_partial_batch_on_stop(
+        self,
+        redis_client: FakeRedis,
+        monkeypatch: MonkeyPatch,
+    ) -> None:
         saved_batches: list[list[ProcessedAgentData]] = []
 
         async def save_batch(batch: list[ProcessedAgentData]) -> bool:
@@ -83,7 +99,7 @@ class TestHubService:
             return True
 
         service = HubService(
-            redis_client=redis_client,
+            redis_client=cast(Any, redis_client),
             batch_size=10,
             flush_interval_seconds=60,
         )
@@ -98,7 +114,11 @@ class TestHubService:
         assert len(saved_batches[0]) == 1
         assert await redis_client.llen(_REDIS_KEY) == 0
 
-    async def test_moves_failed_batch_to_redis_and_retries_it(self, redis_client, monkeypatch):
+    async def test_moves_failed_batch_to_redis_and_retries_it(
+        self,
+        redis_client: FakeRedis,
+        monkeypatch: MonkeyPatch,
+    ) -> None:
         saved_batches: list[list[ProcessedAgentData]] = []
         responses = [False, True]
 
@@ -107,7 +127,7 @@ class TestHubService:
             return responses.pop(0)
 
         service = HubService(
-            redis_client=redis_client,
+            redis_client=cast(Any, redis_client),
             batch_size=2,
             flush_interval_seconds=60,
         )
@@ -128,7 +148,11 @@ class TestHubService:
         assert len(saved_batches[1]) == 2
         assert await redis_client.llen(_REDIS_KEY) == 0
 
-    async def test_periodic_flush_saves_partial_batch(self, redis_client, monkeypatch):
+    async def test_periodic_flush_saves_partial_batch(
+        self,
+        redis_client: FakeRedis,
+        monkeypatch: MonkeyPatch,
+    ) -> None:
         saved_batches: list[list[ProcessedAgentData]] = []
 
         async def save_batch(batch: list[ProcessedAgentData]) -> bool:
@@ -136,7 +160,7 @@ class TestHubService:
             return True
 
         service = HubService(
-            redis_client=redis_client,
+            redis_client=cast(Any, redis_client),
             batch_size=10,
             flush_interval_seconds=0.01,
         )

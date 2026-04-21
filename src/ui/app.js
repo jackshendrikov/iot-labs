@@ -34,6 +34,7 @@ let currentStateSeg = null;
 let currentStateKey = null;
 let carMarker = null;
 let allLatLngs = [];
+let lastBadMarkerLatLng = null;
 let logCount = 0;
 let wsRetryTimer = null;
 
@@ -73,6 +74,8 @@ L.tileLayer(CFG.TILES, {
 }).addTo(map);
 
 L.control.zoom({ position: "topright" }).addTo(map);
+
+window._rvMap = map;
 
 const stateLayers = {
   GOOD: L.featureGroup().addTo(map),
@@ -489,6 +492,32 @@ function buildPopupHtml(sample) {
   `;
 }
 
+function segmentStateFor(sample) {
+  return sample.road_state === "BAD" ? "WARNING" : sample.road_state;
+}
+
+function addBadSpotMarker(sample, latlng) {
+  if (
+    lastBadMarkerLatLng &&
+    haversineKm(lastBadMarkerLatLng[0], lastBadMarkerLatLng[1], latlng[0], latlng[1]) < 0.05
+  ) {
+    return;
+  }
+
+  const marker = L.circleMarker(latlng, {
+    radius: 4,
+    color: STATE_COLORS.BAD,
+    weight: 2,
+    fillColor: STATE_COLORS.BAD,
+    fillOpacity: 0.9,
+    opacity: 0.95,
+    renderer: canvasRenderer,
+  });
+  marker.bindPopup(buildPopupHtml(sample), { maxWidth: 240 });
+  stateLayers.BAD.addLayer(marker);
+  lastBadMarkerLatLng = latlng;
+}
+
 function processPoint(rawSample, animate = false) {
   const sample = normalizeSample(rawSample);
   if (!sample) {
@@ -496,19 +525,20 @@ function processPoint(rawSample, animate = false) {
   }
 
   const latlng = [sample.gps.latitude, sample.gps.longitude];
+  const segmentState = segmentStateFor(sample);
   allLatLngs.push(latlng);
 
   if (prevLatLng !== null) {
-    if (sample.road_state === currentStateKey && currentStateSeg) {
+    if (segmentState === currentStateKey && currentStateSeg) {
       currentStateSeg.addLatLng(latlng);
     } else {
       if (currentStateSeg) {
         currentStateSeg.addLatLng(latlng);
       }
 
-      currentStateKey = sample.road_state;
+      currentStateKey = segmentState;
       currentStateSeg = L.polyline([prevLatLng, latlng], {
-        color: STATE_COLORS[sample.road_state],
+        color: STATE_COLORS[segmentState],
         weight: 5,
         opacity: 0.88,
         lineCap: "round",
@@ -517,13 +547,16 @@ function processPoint(rawSample, animate = false) {
       });
 
       currentStateSeg.bindPopup(buildPopupHtml(sample), { maxWidth: 240 });
-      stateLayers[sample.road_state].addLayer(currentStateSeg);
+      stateLayers[segmentState].addLayer(currentStateSeg);
     }
   } else {
-    currentStateKey = sample.road_state;
+    currentStateKey = segmentState;
   }
 
   prevLatLng = latlng;
+  if (sample.road_state === "BAD") {
+    addBadSpotMarker(sample, latlng);
+  }
 
   if (!carMarker) {
     carMarker = L.marker(latlng, { icon: carIcon, zIndexOffset: 1000 }).addTo(map);

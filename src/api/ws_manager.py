@@ -1,3 +1,5 @@
+"""Менеджери WebSocket-з'єднань для road та sensors каналів."""
+
 from fastapi import WebSocket
 
 from src.core.logger import logger
@@ -32,3 +34,4 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+sensors_manager = ConnectionManager()

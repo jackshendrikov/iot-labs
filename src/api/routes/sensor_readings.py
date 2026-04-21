@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_db
+from src.api.metrics import ANOMALY_FLAGS_TOTAL, SENSOR_READINGS_TOTAL
+from src.api.ws_manager import sensors_manager
 from src.core.logger import logger
 from src.models import SensorReading, SensorReadingInDB, SensorType
 from src.repository.sensor_reading import SensorReadingRepository
@@ -14,7 +16,7 @@ async def create_sensor_readings(
     data: list[SensorReading],
     db: AsyncSession = Depends(get_db),
 ) -> list[SensorReadingInDB]:
-    """Зберігає пакет універсальних показань сенсорів."""
+    """Зберігає пакет універсальних показань сенсорів та транслює в WebSocket."""
     repo = SensorReadingRepository(db)
 
     try:
@@ -25,7 +27,14 @@ async def create_sensor_readings(
         logger.exception("Помилка під час створення batch показань сенсорів")
         raise
 
-    return [SensorReadingInDB.model_validate(item) for item in items]
+    result = [SensorReadingInDB.model_validate(item) for item in items]
+    for record in result:
+        SENSOR_READINGS_TOTAL.labels(sensor_type=record.sensor_type.value).inc()
+        for flag in record.anomaly_flags:
+            ANOMALY_FLAGS_TOTAL.labels(sensor_type=record.sensor_type.value, flag=flag).inc()
+        await sensors_manager.broadcast(record.model_dump_json())
+
+    return result
 
 
 @router.get("/", response_model=list[SensorReadingInDB])

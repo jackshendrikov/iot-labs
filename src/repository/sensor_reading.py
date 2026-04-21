@@ -1,3 +1,5 @@
+"""Репозиторій для універсальних сенсорних показань."""
+
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -63,10 +65,12 @@ class SensorReadingRepository:
             longitude=data.metadata.location.longitude,
             timestamp=self._normalize_timestamp(data.metadata.timestamp),
             payload=payload,
+            anomaly_flags=list(data.metadata.anomaly_flags),
         )
 
     @staticmethod
     def _normalize_timestamp(value: datetime) -> datetime:
+        """Нормалізує timestamp до naive UTC для зберігання в БД."""
         if value.tzinfo is None:
             return value
         return value.astimezone(UTC).replace(tzinfo=None)

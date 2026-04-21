@@ -1,3 +1,5 @@
+"""SQLAlchemy ORM-моделі для таблиць UrbanPulse IoT."""
+
 from datetime import datetime
 from typing import Any
 
@@ -5,8 +7,8 @@ from sqlalchemy import JSON, DateTime, Enum, Float, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from models.processed_agent_data import RoadState
 from src.db.base import Base
+from src.models.processed_agent_data import RoadState
 from src.models.sensor_type import SensorType
 
 # Під PostgreSQL використовуємо JSONB (GIN-індекс + бінарний формат),
@@ -15,6 +17,8 @@ _JsonColumn = JSON().with_variant(JSONB(), "postgresql")
 
 
 class ProcessedAgentDataORM(Base):
+    """ORM-представлення запису дорожнього пайплайна."""
+
     __tablename__ = "processed_agent_data"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -36,6 +40,8 @@ class ProcessedAgentDataORM(Base):
 
 
 class SensorReadingORM(Base):
+    """ORM-представлення універсального сенсорного показання."""
+
     __tablename__ = "sensor_readings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -54,3 +60,19 @@ class SensorReadingORM(Base):
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(_JsonColumn, nullable=False)
+    anomaly_flags: Mapped[list[str]] = mapped_column(_JsonColumn, nullable=False, default=list)
+
+
+class NetworkAnomalyORM(Base):
+    """ORM-представлення мережевої аномалії для Grafana та API."""
+
+    __tablename__ = "network_anomalies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_mean: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_std: Mapped[float] = mapped_column(Float, nullable=False)
+    zscore: Mapped[float] = mapped_column(Float, nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)

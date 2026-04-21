@@ -1,7 +1,14 @@
-name: "road_vision"
+name: "urbanpulse"
+
+# -----------------------------------------------------------------------------
+# UrbanPulse IoT — уніфікований стек:
+#   Road Vision (Lab 1–5)     : agent -> edge -> hub -> store -> UI
+#   Universal Sensors (Lab 6) : sensors_agent -> sensors_edge -> sensors_hub -> store -> UI
+#   Observability (Lab 7)     : store /metrics -> prometheus -> grafana
+# -----------------------------------------------------------------------------
 
 services:
-  # MQTT broker
+  # ======= MQTT broker =======================================================
   mqtt:
     image: eclipse-mosquitto
     container_name: mqtt
@@ -15,7 +22,72 @@ services:
     networks:
       - mqtt_network
 
-  # Agent
+  # ======= PostgreSQL ========================================================
+  postgres_db:
+    image: postgres:18-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: urbanpulse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/structure.sql:/docker-entrypoint-initdb.d/structure.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - db_network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin4
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - db_network
+
+  # ======= Redis =============================================================
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - hub_redis_network
+
+  # ======= Store API (спільне сховище + /metrics + /ws) =====================
+  store:
+    container_name: store
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.store
+    restart: unless-stopped
+    depends_on:
+      - postgres_db
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: urbanpulse
+      STORE_HOST: "0.0.0.0"
+      STORE_PORT: 8000
+      LOG_LEVEL: "DEBUG"
+    ports:
+      - "8000:8000"
+    networks:
+      - db_network
+      - hub_store_network
+
+  # ======= Road Vision pipeline ===================================
   fake_agent:
     container_name: agent
     build:
@@ -34,73 +106,22 @@ services:
     networks:
       - mqtt_network
 
- # PostgreSQL
-  postgres_db:
-    image: postgres:18-alpine
-    container_name: postgres_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: road_vision
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/structure.sql:/docker-entrypoint-initdb.d/structure.sql
-    ports:
-      - "5432:5432"
-    networks:
-      - db_network
-
-  # pgAdmin
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: pgadmin4
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: root
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    ports:
-      - "5050:80"
-    networks:
-      - db_network
-
-  # Store API
-  store:
-    container_name: store
+  edge:
+    container_name: edge
     build:
       context: ..
-      dockerfile: docker/Dockerfile.store
-    restart: unless-stopped
+      dockerfile: docker/Dockerfile.edge
     depends_on:
-      - postgres_db
+      - mqtt
+      - hub
     environment:
-      POSTGRES_HOST: postgres_db
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: road_vision
-      STORE_HOST: "0.0.0.0"
-      STORE_PORT: 8000
-      LOG_LEVEL: "DEBUG"
-    ports:
-      - "8000:8000"
+      MQTT_BROKER_HOST: mqtt
+      MQTT_BROKER_PORT: 1883
+      MQTT_TOPIC: agent_data_topic
+      HUB_MQTT_TOPIC: processed_agent_data_topic
     networks:
-      - db_network
-      - hub_store_network
+      - mqtt_network
 
-  # Redis
-  redis:
-    image: redis:8-alpine
-    container_name: redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    networks:
-      - hub_redis_network
-
-  # Hub
   hub:
     container_name: hub
     build:
@@ -126,29 +147,118 @@ services:
       - hub_store_network
       - hub_redis_network
 
-  # Edge
-  edge:
-    container_name: edge
+  # ======= Universal Sensors pipeline ===============================
+  sensors_agent:
+    container_name: sensors_agent
     build:
       context: ..
-      dockerfile: docker/Dockerfile.edge
+      dockerfile: docker/Dockerfile.sensors_agent
     depends_on:
       - mqtt
-      - hub
     environment:
       MQTT_BROKER_HOST: mqtt
       MQTT_BROKER_PORT: 1883
-      EDGE_MQTT_TOPIC: agent_data_topic
-      HUB_MQTT_TOPIC: processed_agent_data_topic
+      SENSORS_MQTT_TOPIC: sensor_data_topic
+      SENSORS_DELAY: 1.0
+      SENSORS_BATCH_SIZE: 8
+      LOG_LEVEL: "INFO"
     networks:
       - mqtt_network
+
+  sensors_edge:
+    container_name: sensors_edge
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sensors_edge
+    depends_on:
+      - mqtt
+    environment:
+      MQTT_BROKER_HOST: mqtt
+      MQTT_BROKER_PORT: 1883
+      SENSORS_MQTT_TOPIC: sensor_data_topic
+      SENSORS_HUB_MQTT_TOPIC: processed_sensor_data_topic
+      LOG_LEVEL: "INFO"
+    networks:
+      - mqtt_network
+
+  sensors_hub:
+    container_name: sensors_hub
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sensors_hub
+    restart: unless-stopped
+    depends_on:
+      - mqtt
+      - redis
+      - store
+    environment:
+      MQTT_BROKER_HOST: mqtt
+      MQTT_BROKER_PORT: 1883
+      SENSORS_HUB_MQTT_TOPIC: processed_sensor_data_topic
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STORE_API_HOST: store
+      STORE_API_PORT: 8000
+      SENSORS_HUB_BATCH_SIZE: 16
+      SENSORS_HUB_FLUSH_INTERVAL_SECONDS: 10
+      LOG_LEVEL: "INFO"
+    networks:
+      - mqtt_network
+      - hub_store_network
+      - hub_redis_network
+
+  # ======= Observability ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - store
+    networks:
+      - hub_store_network
+      - monitoring_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - postgres_db
+    networks:
+      - db_network
+      - monitoring_network
 
 networks:
   mqtt_network:
   db_network:
   hub_store_network:
   hub_redis_network:
+  monitoring_network:
 
 volumes:
   postgres_data:
   pgadmin_data:
+  prometheus_data:
+  grafana_data:

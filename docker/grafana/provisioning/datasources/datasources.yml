@@ -1,0 +1,28 @@
+# Grafana provisioning для UrbanPulse IoT: Prometheus + PostgreSQL.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "10s"
+
+  - name: PostgreSQL
+    uid: postgres
+    type: postgres
+    access: proxy
+    url: postgres_db:5432
+    user: user
+    editable: false
+    secureJsonData:
+      password: pass
+    jsonData:
+      database: urbanpulse
+      sslmode: disable
+      postgresVersion: 1800
+      timescaledb: false

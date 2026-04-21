@@ -14,6 +14,7 @@ class SensorMetadata(BaseModel):
     sensor_type: SensorType
     location: GeoLocation
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    anomaly_flags: list[str] = Field(default_factory=list)
 
 
 class SensorReading(BaseModel):
@@ -37,6 +38,7 @@ class SensorReadingInDB(BaseModel):
     sensor_type: SensorType
     latitude: float
     longitude: float
+    anomaly_flags: list[str] = Field(default_factory=list)
     timestamp: datetime
     payload: dict
 

@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
   <meta charset="utf-8" />
-  <title>UrbanPulse IoT · Map UI</title>
+  <title>UrbanPulse IoT · Control Center</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Шрифти -->
@@ -22,30 +22,23 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
 
   <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./sensors.css" />
 
-  <!-- Анімація live-маркера автомобіля -->
   <style>
     @keyframes rv-pulse {
       0%   { transform: scale(1);   opacity: 0.9; }
       70%  { transform: scale(2.8); opacity: 0; }
       100% { transform: scale(1);   opacity: 0; }
     }
-
     .rv-car {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
+      width: 14px; height: 14px; border-radius: 50%;
       background: #58a6ff;
       box-shadow: 0 0 0 2px #0d1117, 0 0 0 3px #58a6ff;
       position: relative;
     }
-
     .rv-car::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      border-radius: 50%;
-      background: #58a6ff;
+      content: ""; position: absolute; inset: 0;
+      border-radius: 50%; background: #58a6ff;
       animation: rv-pulse 1.6s ease-out infinite;
     }
   </style>
@@ -64,20 +57,30 @@
         </svg>
         <div>
           <div class="brand-name">UrbanPulse IoT</div>
-          <div class="brand-sub">Міська сенсорика · маршрути · аналітика</div>
+          <div class="brand-sub">Центр моніторингу міської телеметрії</div>
         </div>
       </div>
 
-      <div class="topbar-center" id="route-summary">
-        <span class="summary-item"><i data-lucide="map-pin" class="icon-xs"></i><span id="hdr-points">0</span> точок</span>
-        <span class="summary-sep">·</span>
-        <span class="summary-item"><i data-lucide="route" class="icon-xs"></i><span id="hdr-dist">0.0</span> км</span>
-        <span class="summary-sep">·</span>
-        <span class="summary-item" id="hdr-last-state-wrap">
-          <span class="state-dot" id="hdr-dot"></span>
-          <span id="hdr-last-state">—</span>
-        </span>
-      </div>
+      <nav class="tabs" role="tablist" aria-label="Контрольні розділи">
+        <button class="tab-btn" role="tab" data-tab="road-vision" aria-selected="true">
+          <i data-lucide="route" class="icon-sm"></i><span>Road Vision</span>
+        </button>
+        <button class="tab-btn" role="tab" data-tab="car-parks" aria-selected="false">
+          <i data-lucide="square-parking" class="icon-sm"></i><span>Паркінги</span>
+        </button>
+        <button class="tab-btn" role="tab" data-tab="traffic-lights" aria-selected="false">
+          <i data-lucide="traffic-cone" class="icon-sm"></i><span>Світлофори</span>
+        </button>
+        <button class="tab-btn" role="tab" data-tab="air-quality" aria-selected="false">
+          <i data-lucide="wind" class="icon-sm"></i><span>Повітря</span>
+        </button>
+        <button class="tab-btn" role="tab" data-tab="energy" aria-selected="false">
+          <i data-lucide="zap" class="icon-sm"></i><span>Енергія</span>
+        </button>
+        <button class="tab-btn" role="tab" data-tab="network" aria-selected="false">
+          <i data-lucide="activity" class="icon-sm"></i><span>Мережа</span>
+        </button>
+      </nav>
 
       <div class="topbar-right">
         <div class="status-pill" id="status-pill">
@@ -87,100 +90,197 @@
       </div>
     </header>
 
-    <!-- Робоча область -->
-    <div class="workspace">
-
-      <!-- Карта -->
-      <div class="map-wrap">
-        <div id="map"></div>
-
-        <!-- Легенда карти -->
-        <div class="map-legend">
-          <label class="leg-item">
-            <input type="checkbox" data-toggle="GOOD" checked />
-            <span class="leg-dot" style="background:#3fb950"></span>Good
-          </label>
-          <label class="leg-item">
-            <input type="checkbox" data-toggle="WARNING" checked />
-            <span class="leg-dot" style="background:#d29922"></span>Warning
-          </label>
-          <label class="leg-item">
-            <input type="checkbox" data-toggle="BAD" checked />
-            <span class="leg-dot" style="background:#f85149"></span>Bad
-          </label>
-        </div>
-
-        <!-- Кнопка масштабування до всього маршруту -->
-        <button class="map-btn" id="btn-fit" title="Показати весь маршрут" aria-label="Показати весь маршрут">
-          <i data-lucide="maximize-2"></i>
-        </button>
+    <!-- ======================================================== -->
+    <!-- TAB: Road Vision                                         -->
+    <!-- ======================================================== -->
+    <section class="tab-panel" id="panel-road-vision" role="tabpanel" aria-labelledby="road-vision">
+      <div class="topbar-secondary" id="route-summary">
+        <span class="summary-item"><i data-lucide="map-pin" class="icon-xs"></i><span id="hdr-points">0</span> точок</span>
+        <span class="summary-sep">·</span>
+        <span class="summary-item"><i data-lucide="route" class="icon-xs"></i><span id="hdr-dist">0.0</span> км</span>
+        <span class="summary-sep">·</span>
+        <span class="summary-item" id="hdr-last-state-wrap">
+          <span class="state-dot" id="hdr-dot"></span>
+          <span id="hdr-last-state">—</span>
+        </span>
       </div>
-
-      <!-- Бічна панель -->
-      <aside class="sidebar">
-
-        <!-- KPI-блок -->
-        <div class="kpi-row">
-          <div class="kpi kpi-good">
-            <div class="kpi-value" id="cnt-good">0</div>
-            <div class="kpi-label">Good</div>
-            <div class="kpi-bar"><div class="kpi-fill" id="bar-good"></div></div>
+      <div class="workspace">
+        <div class="map-wrap">
+          <div id="map"></div>
+          <div class="map-legend">
+            <label class="leg-item"><input type="checkbox" data-toggle="GOOD" checked /><span class="leg-dot" style="background:#3fb950"></span>Good</label>
+            <label class="leg-item"><input type="checkbox" data-toggle="WARNING" checked /><span class="leg-dot" style="background:#d29922"></span>Warning</label>
+            <label class="leg-item"><input type="checkbox" data-toggle="BAD" checked /><span class="leg-dot" style="background:#f85149"></span>Bad</label>
           </div>
-          <div class="kpi kpi-warn">
-            <div class="kpi-value" id="cnt-warning">0</div>
-            <div class="kpi-label">Warning</div>
-            <div class="kpi-bar"><div class="kpi-fill" id="bar-warning"></div></div>
+          <button class="map-btn" id="btn-fit" title="Показати весь маршрут" aria-label="Показати весь маршрут">
+            <i data-lucide="maximize-2"></i>
+          </button>
+        </div>
+        <aside class="sidebar">
+          <div class="kpi-row">
+            <div class="kpi kpi-good"><div class="kpi-value" id="cnt-good">0</div><div class="kpi-label">Good</div><div class="kpi-bar"><div class="kpi-fill" id="bar-good"></div></div></div>
+            <div class="kpi kpi-warn"><div class="kpi-value" id="cnt-warning">0</div><div class="kpi-label">Warning</div><div class="kpi-bar"><div class="kpi-fill" id="bar-warning"></div></div></div>
+            <div class="kpi kpi-bad"><div class="kpi-value" id="cnt-bad">0</div><div class="kpi-label">Bad</div><div class="kpi-bar"><div class="kpi-fill" id="bar-bad"></div></div></div>
           </div>
-          <div class="kpi kpi-bad">
-            <div class="kpi-value" id="cnt-bad">0</div>
-            <div class="kpi-label">Bad</div>
-            <div class="kpi-bar"><div class="kpi-fill" id="bar-bad"></div></div>
+          <section class="panel">
+            <div class="panel-head"><i data-lucide="activity" class="icon-sm"></i><span>Акселерометр — вісь Z</span><span class="panel-sub">відхилення від baseline</span></div>
+            <div class="chart-wrap chart-tall"><canvas id="chartZ"></canvas></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><i data-lucide="move" class="icon-sm"></i><span>Осі X та Y</span><span class="panel-sub">бічне прискорення</span></div>
+            <div class="chart-wrap chart-short"><canvas id="chartXY"></canvas></div>
+          </section>
+          <section class="panel panel-grow">
+            <div class="panel-head"><i data-lucide="list" class="icon-sm"></i><span>Останні події</span><span class="panel-badge" id="log-badge">0</span></div>
+            <div class="event-log" id="event-log">
+              <div class="log-empty"><i data-lucide="satellite" style="width:28px;height:28px;color:var(--text-faint)"></i><p>Очікуємо перших точок...</p></div>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- TAB: Car Parks                                           -->
+    <!-- ======================================================== -->
+    <section class="tab-panel theme-parks" id="panel-car-parks" role="tabpanel" aria-labelledby="car-parks" hidden>
+      <div class="sensor-hero">
+        <div class="sensor-hero-title">
+          <i data-lucide="square-parking" class="icon-lg"></i>
+          <div>
+            <div class="hero-name">Паркінги міста</div>
+            <div class="hero-sub">Завантаженість у реальному часі · <span id="parks-sensor-count">0</span> майданчиків</div>
           </div>
         </div>
+        <div class="sensor-hero-kpis">
+          <div class="hero-kpi"><div class="hero-kpi-label">Середня зайнятість</div><div class="hero-kpi-value" id="parks-avg-occ">0%</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Переповнені</div><div class="hero-kpi-value alert" id="parks-overcrowded">0</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Вільних місць</div><div class="hero-kpi-value ok" id="parks-free">0</div></div>
+        </div>
+      </div>
+      <div class="cards-grid" id="parks-grid">
+        <div class="empty-hint"><i data-lucide="square-parking"></i><span>Очікуємо на дані з сенсорів паркінгів...</span></div>
+      </div>
+    </section>
 
-        <!-- Графіки акселерометра -->
+    <!-- ======================================================== -->
+    <!-- TAB: Traffic Lights                                      -->
+    <!-- ======================================================== -->
+    <section class="tab-panel theme-lights" id="panel-traffic-lights" role="tabpanel" aria-labelledby="traffic-lights" hidden>
+      <div class="sensor-hero">
+        <div class="sensor-hero-title">
+          <i data-lucide="traffic-cone" class="icon-lg"></i>
+          <div>
+            <div class="hero-name">Світлофорні перехрестя</div>
+            <div class="hero-sub">Стан циклу, черга, виклик пішохода</div>
+          </div>
+        </div>
+        <div class="sensor-hero-kpis">
+          <div class="hero-kpi"><div class="hero-kpi-label">Затори</div><div class="hero-kpi-value alert" id="lights-gridlock">0</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Середня черга</div><div class="hero-kpi-value" id="lights-avg-queue">0</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Перехресть</div><div class="hero-kpi-value" id="lights-count">0</div></div>
+        </div>
+      </div>
+      <div class="lights-grid" id="lights-grid">
+        <div class="empty-hint"><i data-lucide="traffic-cone"></i><span>Очікуємо на дані зі світлофорів...</span></div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- TAB: Air Quality                                         -->
+    <!-- ======================================================== -->
+    <section class="tab-panel theme-air" id="panel-air-quality" role="tabpanel" aria-labelledby="air-quality" hidden>
+      <div class="sensor-hero">
+        <div class="sensor-hero-title">
+          <i data-lucide="wind" class="icon-lg"></i>
+          <div>
+            <div class="hero-name">Якість повітря</div>
+            <div class="hero-sub">PM2.5 / PM10 / NO₂ / O₃ · пороги WHO</div>
+          </div>
+        </div>
+        <div class="sensor-hero-kpis">
+          <div class="hero-kpi"><div class="hero-kpi-label">Максимум PM2.5</div><div class="hero-kpi-value" id="air-max-pm25">0</div><div class="hero-kpi-unit">мкг/м³</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Середня PM2.5</div><div class="hero-kpi-value" id="air-avg-pm25">0</div><div class="hero-kpi-unit">мкг/м³</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Небезпечних станцій</div><div class="hero-kpi-value alert" id="air-unhealthy">0</div></div>
+        </div>
+      </div>
+      <div class="air-layout">
+        <div class="air-stations" id="air-stations">
+          <div class="empty-hint"><i data-lucide="wind"></i><span>Очікуємо на дані з AQ-станцій...</span></div>
+        </div>
+        <section class="panel">
+          <div class="panel-head"><i data-lucide="line-chart" class="icon-sm"></i><span>Динаміка PM2.5</span><span class="panel-sub">останні 60 точок</span></div>
+          <div class="chart-wrap chart-tall"><canvas id="chart-pm25"></canvas></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- TAB: Energy                                              -->
+    <!-- ======================================================== -->
+    <section class="tab-panel theme-energy" id="panel-energy" role="tabpanel" aria-labelledby="energy" hidden>
+      <div class="sensor-hero">
+        <div class="sensor-hero-title">
+          <i data-lucide="zap" class="icon-lg"></i>
+          <div>
+            <div class="hero-name">Енергетичні лічильники</div>
+            <div class="hero-sub">Напруга · струм · cos φ · споживання</div>
+          </div>
+        </div>
+        <div class="sensor-hero-kpis">
+          <div class="hero-kpi"><div class="hero-kpi-label">Сумарна потужність</div><div class="hero-kpi-value" id="energy-total-kw">0</div><div class="hero-kpi-unit">кВт</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Середній cos φ</div><div class="hero-kpi-value" id="energy-avg-pf">—</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Аварії напруги</div><div class="hero-kpi-value alert" id="energy-voltage-alerts">0</div></div>
+        </div>
+      </div>
+      <div class="cards-grid" id="energy-grid">
+        <div class="empty-hint"><i data-lucide="zap"></i><span>Очікуємо на дані з лічильників...</span></div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- TAB: Network Health                                      -->
+    <!-- ======================================================== -->
+    <section class="tab-panel theme-network" id="panel-network" role="tabpanel" aria-labelledby="network" hidden>
+      <div class="sensor-hero">
+        <div class="sensor-hero-title">
+          <i data-lucide="activity" class="icon-lg"></i>
+          <div>
+            <div class="hero-name">Стан мережі Store API</div>
+            <div class="hero-sub">Latency · RPS · Error-rate · Z-score аномалії</div>
+          </div>
+        </div>
+        <div class="sensor-hero-kpis">
+          <div class="hero-kpi"><div class="hero-kpi-label">Аномалій за годину</div><div class="hero-kpi-value alert" id="net-anoms-hour">0</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Останні 24h</div><div class="hero-kpi-value" id="net-anoms-day">0</div></div>
+          <div class="hero-kpi"><div class="hero-kpi-label">Останнє оновлення</div><div class="hero-kpi-value small" id="net-last-update">—</div></div>
+        </div>
+      </div>
+      <div class="net-layout">
+        <section class="panel">
+          <div class="panel-head"><i data-lucide="list" class="icon-sm"></i><span>Зафіксовані мережеві аномалії</span></div>
+          <div class="net-log" id="net-log">
+            <div class="log-empty"><i data-lucide="shield-check" style="width:28px;height:28px;color:var(--text-faint)"></i><p>Поки що все спокійно.</p></div>
+          </div>
+        </section>
         <section class="panel">
           <div class="panel-head">
-            <i data-lucide="activity" class="icon-sm"></i>
-            <span>Акселерометр — вісь Z</span>
-            <span class="panel-sub">відхилення від baseline</span>
+            <i data-lucide="info" class="icon-sm"></i>
+            <span>Grafana дашборди</span>
           </div>
-          <div class="chart-wrap chart-tall">
-            <canvas id="chartZ"></canvas>
-          </div>
+          <ul class="link-list">
+            <li><a href="http://localhost:3000/d/urbanpulse-overview/urbanpulse-e28094-overview" target="_blank" rel="noopener">UrbanPulse — Overview</a></li>
+            <li><a href="http://localhost:3000/d/urbanpulse-air/urbanpulse-e28094-sensors-air-energy-traffic" target="_blank" rel="noopener">UrbanPulse — Sensors (Air / Energy / Traffic)</a></li>
+            <li><a href="http://localhost:3000/d/urbanpulse-network/urbanpulse-e28094-network-health" target="_blank" rel="noopener">UrbanPulse — Network Health</a></li>
+          </ul>
         </section>
+      </div>
+    </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <i data-lucide="move" class="icon-sm"></i>
-            <span>Осі X та Y</span>
-            <span class="panel-sub">бічне прискорення</span>
-          </div>
-          <div class="chart-wrap chart-short">
-            <canvas id="chartXY"></canvas>
-          </div>
-        </section>
-
-        <!-- Журнал подій -->
-        <section class="panel panel-grow">
-          <div class="panel-head">
-            <i data-lucide="list" class="icon-sm"></i>
-            <span>Останні події</span>
-            <span class="panel-badge" id="log-badge">0</span>
-          </div>
-          <div class="event-log" id="event-log">
-            <div class="log-empty">
-              <i data-lucide="satellite" style="width:28px;height:28px;color:var(--text-faint)"></i>
-              <p>Очікуємо перших точок...</p>
-            </div>
-          </div>
-        </section>
-
-      </aside>
-    </div>
   </div>
 
   <script src="./app.js" defer></script>
+  <script src="./sensors.js" defer></script>
   <script>window.addEventListener("load", () => lucide.createIcons());</script>
 </body>
 </html>

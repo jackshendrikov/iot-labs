@@ -1,3 +1,5 @@
+"""HTTP-адаптер Hub для пакетного збереження дорожніх даних."""
+
 from collections.abc import Sequence
 
 import httpx
@@ -15,6 +17,7 @@ class StoreApiGateway:
         self._client = httpx.AsyncClient(timeout=10.0)
 
     async def close(self) -> None:
+        """Закриває внутрішній HTTP-клієнт."""
         await self._client.aclose()
 
     async def save_batch(self, batch: Sequence[ProcessedAgentData]) -> bool:

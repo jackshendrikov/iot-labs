@@ -17,15 +17,19 @@ class TestProcessAgentData:
         assert result.road_state is RoadState.GOOD
 
     def test_returns_warning_for_medium_y_spike(self):
-        result = process_agent_data(self._make_data(y=150.0, z=16510.0))
+        result = process_agent_data(self._make_data(y=14000.0, z=16510.0))
         assert result.road_state is RoadState.WARNING
 
     def test_returns_bad_for_large_y_spike(self):
-        result = process_agent_data(self._make_data(y=600.0, z=16510.0))
+        result = process_agent_data(self._make_data(y=15100.0, z=16510.0))
         assert result.road_state is RoadState.BAD
 
-    def test_returns_bad_for_large_z_deviation(self):
-        result = process_agent_data(self._make_data(y=20.0, z=14000.0))
+    def test_returns_warning_for_large_z_deviation(self):
+        result = process_agent_data(self._make_data(y=20.0, z=49750.0))
+        assert result.road_state is RoadState.WARNING
+
+    def test_returns_bad_for_extreme_z_deviation(self):
+        result = process_agent_data(self._make_data(y=20.0, z=50750.0))
         assert result.road_state is RoadState.BAD
 
     def test_preserves_original_agent_data(self):

@@ -1,8 +1,10 @@
+"""Конфігурація всіх сервісів UrbanPulse IoT через pydantic-settings."""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Клас налаштувань застосунку (агент + store + hub)."""
+    """Єдина модель налаштувань для road, sensors та observability-контурів."""
 
     # --- Агент / MQTT ---
     mqtt_broker_host: str = "localhost"
@@ -21,7 +23,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_user: str = "user"
     postgres_password: str = "pass"
-    postgres_db: str = "sensors"
+    postgres_db: str = "urbanpulse"
     db_echo: bool = False
 
     store_host: str = "0.0.0.0"
@@ -39,6 +41,27 @@ class Settings(BaseSettings):
     # Store API URL (звідки Hub відправляє дані)
     store_api_host: str = "localhost"
     store_api_port: int = 8000
+
+    # --- Universal Sensors ---
+    # Агент публікує сирі показання; Edge додає anomaly_flags і передає їх далі до Hub
+    sensors_mqtt_topic: str = "sensor_data_topic"
+    sensors_hub_mqtt_topic: str = "processed_sensor_data_topic"
+    sensors_delay: float = 2.0
+    sensors_batch_size: int = 8
+    sensors_loop_reading: bool = True
+    sensors_hub_batch_size: int = 16
+    sensors_hub_flush_interval_seconds: float = 10.0
+
+    # Шляхи до CSV, які читає Sensors Agent
+    car_parks_file: str = "data/car_parks.csv"
+    traffic_lights_file: str = "data/traffic_lights.csv"
+    air_quality_file: str = "data/air_quality.csv"
+    energy_meters_file: str = "data/energy_meters.csv"
+
+    # --- Network analytics ---
+    network_anomaly_window_seconds: float = 15.0
+    network_anomaly_zscore_threshold: float = 2.2
+    network_anomaly_min_samples: int = 4
 
     # --- Загальне ---
     log_level: str = "DEBUG"

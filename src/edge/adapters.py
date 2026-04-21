@@ -19,7 +19,7 @@ class AgentGateway(ABC):
 
     @abstractmethod
     def connect(self) -> None:
-        """Підключає transport до зовнішніх сервісів."""
+        """Підключає транспортний шар до зовнішніх сервісів."""
 
     @abstractmethod
     def start(self) -> None:
@@ -27,7 +27,7 @@ class AgentGateway(ABC):
 
     @abstractmethod
     def stop(self) -> None:
-        """Коректно завершує роботу transport."""
+        """Коректно завершує роботу транспортного шару."""
 
 
 class HubGateway(ABC):
@@ -35,7 +35,7 @@ class HubGateway(ABC):
 
     @abstractmethod
     def connect(self) -> None:
-        """Підключає transport до зовнішніх сервісів."""
+        """Підключає транспортний шар до зовнішніх сервісів."""
 
     @abstractmethod
     def send_data(self, processed_data: ProcessedAgentData) -> bool:
@@ -43,7 +43,7 @@ class HubGateway(ABC):
 
     @abstractmethod
     def stop(self) -> None:
-        """Коректно завершує роботу transport."""
+        """Коректно завершує роботу транспортного шару."""
 
 
 class HubMqttAdapter(HubGateway):

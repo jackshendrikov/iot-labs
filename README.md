@@ -8,6 +8,7 @@
 - **Lab 4 — Edge Data Logic**: сервіс первинної обробки даних агента — підписується на `agent_data_topic`, класифікує стан дорожнього покриття за даними акселерометра та публікує `ProcessedAgentData` у `processed_agent_data_topic`.
 - **Lab 5 — Map UI**: веб‑інтерфейс для візуалізації маршруту та стану дорожнього покриття на інтерактивній карті. Завантажує історичні дані через `GET /processed_agent_data/` та отримує нові точки у реальному часі через WebSocket `/ws`. Маршрут забарвлюється сегментами відповідно до `road_state`; графіки акселерометра відображають осі Z (відхилення від baseline) та X/Y.
 - **Lab 6 — Universal Sensor Structure**: універсальна розширювана структура даних для нових типів сенсорних об'єктів (паркомісця, світлофори, сенсори якості повітря, лічильники електроенергії). Побудована на дискримінованій спілці Pydantic-payload-ів та єдиній таблиці PostgreSQL з JSONB для типоспецифічних полів. Включає генератор синтетичних даних, що відтворює патерни відкритих датасетів (SFpark, EEA AQ, smart-metering).
+- **Lab 7 — Grafana Dashboards + Network Monitoring**: observability-рівень із Prometheus-метриками, Grafana-дашбордами та фоновим Z-score детектором мережевих аномалій. Додає live-моніторинг sensor pipeline, network health та візуалізацію аномалій у режимі реального часу.
 
 Проєкт побудований з використанням `pydantic` v2 для опису моделей, `pydantic-settings` для конфігурації, `SQLAlchemy 2.0 async` + `asyncpg` для роботи з БД, `FastAPI` для API, `redis.asyncio` + `httpx` для Hub, `paho-mqtt` для Edge, `Leaflet.js` + `Chart.js` для Map UI, `pre-commit` з набором лінтерів, та підтримує запуск як локально, так і в Docker.
 
@@ -28,6 +29,7 @@ iot-labs/
 │   │   ├── gps.py
 │   │   ├── temperature_sensor.py
 │   │   ├── aggregated_data.py
+│   │   ├── network_anomaly.py    # Lab 7: модель мережевої аномалії для API та Grafana
 │   │   ├── processed_agent_data.py
 │   │   ├── geo_location.py      # Lab 6: WGS-84 геоточка
 │   │   ├── sensor_type.py       # Lab 6: StrEnum типів сенсорів
@@ -39,16 +41,21 @@ iot-labs/
 │   │       └── energy_meter.py
 │   ├── db/                      # Шар бази даних
 │   │   ├── base.py              # SQLAlchemy async engine, session factory, Base, get_db_session
-│   │   └── orm_models.py        # ORM‑модель ProcessedAgentDataORM
+│   │   └── orm_models.py        # ORM‑моделі ProcessedAgentDataORM, SensorReadingORM, NetworkAnomalyORM
 │   ├── repository/              # Шар доступу до даних (Repository pattern)
-│   │   └── processed_agent_data.py
+│   │   ├── processed_agent_data.py
+│   │   └── sensor_reading.py
 │   ├── api/                     # FastAPI застосунок
 │   │   ├── app.py               # Фабрика застосунку, lifespan, монтування StaticFiles /ui
+│   │   ├── metrics.py           # Prometheus middleware, registry та /metrics
+│   │   ├── network_analytics.py # EWMA Z-score детектор мережевих аномалій
 │   │   ├── router.py            # Агрегатор роутерів
 │   │   ├── dependencies.py      # FastAPI Depends: сесія БД
-│   │   ├── ws_manager.py        # ConnectionManager для WebSocket
+│   │   ├── ws_manager.py        # Менеджери WebSocket для road та sensors каналів
 │   │   └── routes/              # Маршрути, розбиті за відповідальністю
 │   │       ├── processed_agent_data.py  # CRUDL ендпоінти + WS broadcast при POST
+│   │       ├── sensor_readings.py       # CRUDL для універсальних сенсорів + broadcast у /ws/sensors
+│   │       ├── network_anomalies.py     # GET /network_anomalies/
 │   │       ├── health.py        # /health із перевіркою БД (SELECT 1)
 │   │       └── websocket.py     # /ws WebSocket ендпоінт
 │   ├── agent/                   # Lab 1 — логіка агента
@@ -60,6 +67,16 @@ iot-labs/
 │   │   ├── main.py              # Точка входу Hub: запуск HubService
 │   │   ├── service.py           # HubService: MQTT → asyncio.Queue → Redis backlog → Store API
 │   │   └── gateway.py           # StoreApiGateway: async HTTP-адаптер до Store API (httpx)
+│   ├── sensors_agent/           # Lab 6/7 — агент універсальних сенсорів
+│   │   ├── csv_source.py        # Merge-sort читання кількох CSV у хронологічному порядку
+│   │   └── main.py              # Публікація SensorReading у sensor_data_topic
+│   ├── sensors_edge/            # Lab 6/7 — edge-обробка сенсорів
+│   │   ├── anomaly_rules.py     # Набір правил для anomaly_flags
+│   │   └── main.py              # SensorsEdgeService: MQTT -> enrichment -> MQTT
+│   ├── sensors_hub/             # Lab 6/7 — hub для універсальних сенсорів
+│   │   ├── gateway.py           # Async HTTP-адаптер до POST /sensor_readings/
+│   │   ├── service.py           # Redis backlog + batch flush у Store API
+│   │   └── main.py              # Точка входу Sensors Hub
 │   ├── edge/                    # Lab 4 — Edge Data Logic
 │   │   ├── main.py              # Точка входу Edge
 │   │   ├── processor.py         # process_agent_data(): класифікація RoadState за акселерометром
@@ -67,7 +84,9 @@ iot-labs/
 │   ├── ui/                      # Lab 5 — Map UI (статичні файли, роздаються Store API)
 │   │   ├── index.html           # Розмітка: topbar, карта Leaflet, sidebar з KPI та логом
 │   │   ├── style.css            # Темна дизайн-система (CartoDB Dark Matter, CSS custom properties)
-│   │   └── app.js               # Логіка: REST-завантаження історії, WS live-stream, Chart.js графіки
+│   │   ├── app.js               # Логіка дорожньої вкладки: карта, REST, WS, Chart.js
+│   │   ├── sensors.css          # Теми для car parks / traffic lights / air / energy / network
+│   │   └── sensors.js           # Табовий UI сенсорів і мережевих аномалій
 │   └── synthetic/               # Lab 6 — Генератор синтетичних показань нових сенсорів
 │       ├── generator.py         # generate_readings / write_csv_files / read_csv_file
 │       └── main.py              # CLI: CSV у data/ + опційний --seed-db у PostgreSQL
@@ -76,10 +95,15 @@ iot-labs/
 │   ├── Dockerfile.store         # Образ Store API
 │   ├── Dockerfile.hub           # Образ Hub
 │   ├── Dockerfile.edge          # Образ Edge
-│   ├── docker-compose.yaml      # Unified: agent + mqtt + postgres + pgadmin + store + redis + hub + edge
+│   ├── Dockerfile.sensors_agent # Образ Sensors Agent
+│   ├── Dockerfile.sensors_edge  # Образ Sensors Edge
+│   ├── Dockerfile.sensors_hub   # Образ Sensors Hub
+│   ├── docker-compose.yaml      # Повний стек: road pipeline + sensors pipeline + Grafana + Prometheus
+│   ├── grafana/                 # Provisioning і JSON-дашборди Grafana
+│   ├── prometheus/              # Конфігурація scrape для Store API
 │   ├── mosquitto/               # Конфігурація брокера Mosquitto
 │   └── db/
-│       └── structure.sql        # Ініціалізація таблиці processed_agent_data
+│       └── structure.sql        # Ініціалізація processed_agent_data, sensor_readings, network_anomalies
 ├── tests/                       # Тести
 │   ├── unit/
 │   └── integration/
@@ -134,7 +158,7 @@ iot-labs/
    POSTGRES_PORT=5432
    POSTGRES_USER=user
    POSTGRES_PASSWORD=pass
-   POSTGRES_DB=road_vision
+   POSTGRES_DB=sensors
    STORE_PORT=8000
 
    # Hub / Redis (Lab 3)
@@ -144,6 +168,24 @@ iot-labs/
    HUB_BATCH_SIZE=10
    HUB_FLUSH_INTERVAL_SECONDS=30
    HUB_MQTT_TOPIC=processed_agent_data_topic
+
+   # Universal Sensors
+   SENSORS_MQTT_TOPIC=sensor_data_topic
+   SENSORS_HUB_MQTT_TOPIC=processed_sensor_data_topic
+   SENSORS_DELAY=1.0
+   SENSORS_BATCH_SIZE=8
+   SENSORS_LOOP_READING=true
+   SENSORS_HUB_BATCH_SIZE=16
+   SENSORS_HUB_FLUSH_INTERVAL_SECONDS=10
+   CAR_PARKS_FILE=data/car_parks.csv
+   TRAFFIC_LIGHTS_FILE=data/traffic_lights.csv
+   AIR_QUALITY_FILE=data/air_quality.csv
+   ENERGY_METERS_FILE=data/energy_meters.csv
+
+   # Network analytics
+   NETWORK_ANOMALY_WINDOW_SECONDS=15
+   NETWORK_ANOMALY_ZSCORE_THRESHOLD=2.2
+   NETWORK_ANOMALY_MIN_SAMPLES=4
 
    LOG_LEVEL=INFO
    ```
@@ -177,7 +219,7 @@ iot-labs/
 8. **Запустити PostgreSQL**:
 
    ```bash
-   docker run --rm -e POSTGRES_USER=user -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=road_vision -p 5432:5432 postgres:18-alpine
+   docker run --rm -e POSTGRES_USER=user -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=sensors -p 5432:5432 postgres:18-alpine
    ```
 
 9. **Запустити Store API**:
@@ -321,10 +363,10 @@ just seed-sensors
 
 Після `just generate-sensors` у `data/` з'являться:
 
-- `data/car_parks.csv` — 5 паркінгів × 24 години
-- `data/traffic_lights.csv` — 8 світлофорів × 20 зрізів
-- `data/air_quality.csv` — 4 станції × 24 години
-- `data/energy_meters.csv` — 3 лічильники × 24 зрізи
+- `data/car_parks.csv` — 5 паркінгів × 192 зрізи по 15 хвилин
+- `data/traffic_lights.csv` — 8 світлофорів × 192 зрізи по 15 хвилин
+- `data/air_quality.csv` — 4 станції × 192 зрізи по 15 хвилин
+- `data/energy_meters.csv` — 3 лічильники × 192 зрізи по 15 хвилин
 
 CSV-формат (`sensor_id, sensor_type, latitude, longitude, timestamp, payload`), де `payload` — JSON-рядок. Функція `read_csv_file()` відновлює повноцінний `SensorReading` (перевірено round-trip-тестами).
 
@@ -381,12 +423,70 @@ CSV-формат (`sensor_id, sensor_type, latitude, longitude, timestamp, paylo
 - `tests/integration/test_sensor_readings_api.py` — 10 тестів через `httpx.AsyncClient` + in-memory SQLite: CRUDL, фільтри, round-trip JSON payload.
 
 ```bash
-just test   # усі 108 тестів (83 попередніх + 25 Lab 6)
+just test   # повний набір unit та integration тестів проєкту
 ```
+
+### Lab 6 (extra) — MQTT-пайплайн універсальних сенсорів
+
+Після Lab 6 показання існували лише як REST-batch; тому було додано повноцінний
+MQTT-пайплайн, який повторює архітектуру дорожнього контуру, але свідомо працює
+у режимі **без циклічного повторення** — коли CSV-джерела вичерпуються,
+публікація зупиняється.
+
+```mermaid
+flowchart LR
+    SA(["sensors_agent\nMQTT"])
+    SDT[/"sensor_data_topic\nMQTT Broker"/]
+    SE(["sensors_edge\nRules Engine"])
+    PSDT[/"processed_sensor_data_topic\nMQTT Broker"/]
+    SH(["sensors_hub\nRedis Buffer"])
+    API(["POST /sensor_readings/\nHTTP API"])
+
+    SA -->|publish| SDT
+    SDT -->|subscribe| SE
+    SE -->|publish| PSDT
+    PSDT -->|subscribe| SH
+    SH -->|flush| API
+```
+
+- `src/sensors_agent/` — merge-sorted reader по 4 CSV + публікація `SensorReading` у `sensor_data_topic`.
+- `src/sensors_edge/` — підписка, розмітка по правилам (`detect_anomaly_flags`:
+  `overcrowded`, `congested`, `unhealthy_pm25`, `voltage_out_of_range`, ...),
+  re-publish у `processed_sensor_data_topic`.
+- `src/sensors_hub/` — окремий `SensorsHubService` (свій Redis-ключ), batch-POST
+  у `/sensor_readings/`.
+- Store API віщає приймання на WebSocket-каналі `/ws/sensors`; UI підписується
+  на нього для real-time оновлень.
+
+Локально:
+```bash
+just run-sensors-agent
+just run-sensors-edge
+just run-sensors-hub
+```
+
+### Lab 7 — Dashboard-и в Grafana + Network Anomaly Detection
+
+Store API експонує `/metrics` у форматі Prometheus (middleware `PrometheusMiddleware`
++ доменні лічильники `urbanpulse_sensor_readings_total`,
+`urbanpulse_sensor_anomaly_flags_total`, `urbanpulse_network_anomalies_total`).
+
+Фоновий worker `NetworkAnomalyDetector`:
+
+- Кожні `network_anomaly_window_seconds` секунд обчислює `latency_p95_ms`, `request_rate_rps`, `error_rate` з власних Prometheus-гістограм;
+- Веде **ковзне EWMA mean/std**, рахує |z-score|;
+- Коли |z| ≥ `network_anomaly_zscore_threshold` і зібрано мін. вибірку — записує подію в `network_anomalies` (PostgreSQL) і інкрементує Prometheus-лічильник.
+- Severity: `critical` (z ≥ 2·поріг), `major` (z ≥ 1.5·поріг), `minor` інакше.
+
+Дашборди генеруються з `docker/grafana/dashboards/*.json`:
+
+- **UrbanPulse — Overview** — загальний трафік показань, топ anomaly-flags, WS-з'єднання.
+- **UrbanPulse — Network Health** — latency p50/p95/p99, throughput за endpoint, error-rate, z-score аномалії, таблиця останніх подій із PostgreSQL.
+- **UrbanPulse — Sensors (Air / Energy / Traffic)** — PM2.5/потужність у часі, топ переповнених паркінгів та заторових перехресть (SQL-запити до `sensor_readings`).
 
 ## 🐳 Запуск у Docker
 
-Проєкт включає єдиний `docker-compose.yaml`, що запускає всі сервіси одночасно:
+Єдиний `docker-compose.yaml` уніфікує дорожній пайплайн, сенсорний пайплайн та observability-стек (Prometheus + Grafana):
 
 ```bash
 just docker-up
@@ -396,9 +496,11 @@ just docker-up
 
 | Сервіс | URL |
 |---|---|
+| UrbanPulse UI | [http://localhost:8000/ui/](http://localhost:8000/ui/) |
 | Store API / Swagger | [http://localhost:8000/docs](http://localhost:8000/docs) |
-| Map UI | [http://localhost:8000/ui/](http://localhost:8000/ui/) |
-| Health check | [http://localhost:8000/health](http://localhost:8000/health) |
+| Store metrics | [http://localhost:8000/metrics](http://localhost:8000/metrics) |
+| Grafana (anonymous Viewer) | [http://localhost:3000](http://localhost:3000) |
+| Prometheus | [http://localhost:9090](http://localhost:9090) |
 | pgAdmin | [http://localhost:5050](http://localhost:5050) |
 | MQTT broker | localhost:1883 |
 | Redis | localhost:6379 |
@@ -441,6 +543,7 @@ pre-commit run --all-files
 - `just run-store` — запускає Store API локально (`uvicorn src.api.app:app`). Map UI доступний на `/ui/`.
 - `just run-hub` — запускає Hub локально (`python -m src.hub.main`).
 - `just run-edge` — запускає Edge локально (`python -m src.edge.main`).
+- `just run-sensors-agent` / `run-sensors-edge` / `run-sensors-hub` — запускають MQTT-пайплайн для універсальних сенсорів.
 - `just generate-sensors` — генерує синтетичні CSV у `data/` для нових типів сенсорів (Lab 6).
 - `just seed-sensors` — генерує та одразу записує показання у PostgreSQL (`sensor_readings`).
 - `just test` — запускає модульні тести за допомогою `pytest`.

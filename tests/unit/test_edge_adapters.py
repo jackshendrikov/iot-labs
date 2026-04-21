@@ -55,9 +55,9 @@ class FakeHubGateway:
         self.stopped = True
 
 
-def _make_agent_data() -> AggregatedData:
+def _make_agent_data(*, y: float = 600.0, z: float = 16500.0) -> AggregatedData:
     return AggregatedData(
-        accelerometer=Accelerometer(x=0.1, y=600.0, z=16500.0),
+        accelerometer=Accelerometer(x=0.1, y=y, z=z),
         gps=Gps(latitude=50.45, longitude=30.52),
         time=datetime(2026, 3, 20, 11, 0, tzinfo=timezone.utc),
     )
@@ -113,7 +113,7 @@ class TestAgentMqttAdapter:
         hub = FakeHubGateway()
         mqtt_client = FakeMqttClient()
         adapter = AgentMqttAdapter(hub_gateway=hub, mqtt_client=mqtt_client)
-        payload = _make_agent_data().model_dump_json().encode("utf-8")
+        payload = _make_agent_data(y=15100.0).model_dump_json().encode("utf-8")
         message = SimpleNamespace(payload=payload)
 
         adapter.on_message(mqtt_client, None, message)

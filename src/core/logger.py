@@ -1,8 +1,10 @@
+"""Спільний логер проєкту з кольоровим форматуванням."""
+
 import logging
 import sys
 from typing import ClassVar
 
-from core.config import settings
+from src.core.config import settings
 
 
 class _ColorFormatter(logging.Formatter):
@@ -35,6 +37,7 @@ class ProjectLogger:
         self._logger: logging.Logger | None = None
 
     def __call__(self) -> logging.Logger:
+        """Повертає інстанс логера при виклику об'єкта як функції."""
         return self.logger
 
     @property
@@ -64,4 +67,4 @@ class ProjectLogger:
         return logger
 
 
-logger = ProjectLogger(name="road-vision-agent")()
+logger = ProjectLogger(name="urbanpulse-iot")()
